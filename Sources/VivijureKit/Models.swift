@@ -226,12 +226,51 @@ public struct RenderPatchRequest: Codable, Sendable {
   public var label: String?
   public var tags: [String]?
   public var folderPath: String?
+  public var lockedShots: [String]?
 
-  public init(label: String? = nil, tags: [String]? = nil, folderPath: String? = nil) {
+  public init(
+    label: String? = nil,
+    tags: [String]? = nil,
+    folderPath: String? = nil,
+    lockedShots: [String]? = nil
+  ) {
     self.label = label
     self.tags = tags
     self.folderPath = folderPath
+    self.lockedShots = lockedShots
   }
+}
+
+public struct ChatRequest: Codable, Sendable {
+  public var model: String
+  public var user_input: String
+
+  public init(model: String, userInput: String) {
+    self.model = model
+    self.user_input = userInput
+  }
+}
+
+public struct ChatResponse: Codable, Sendable {
+  public var output: String?
+  public var error: String?
+  public var reply: String?
+}
+
+public struct DemoMenuResponse: Codable, Sendable {
+  public var available: Bool?
+  public var scenes: [JSONValue]?
+}
+
+public struct DemoRenderResponse: Codable, Sendable {
+  public var jobId: String?
+  public var job_id: String?
+  public var status: String?
+  public var position: Int?
+  public var waitSeconds: Double?
+  public var error: String?
+
+  public var resolvedJobId: String? { jobId ?? job_id }
 }
 
 public struct TagsListResponse: Codable, Sendable {
@@ -290,6 +329,7 @@ public struct StoryboardRenderRequest: Codable, Sendable {
   public var motion_backend: String?
   public var keyframe_backend: String?
   public var audioKey: String?
+  public var renderOverrides: JSONValue?
 
   public init(
     storyboard: JSONValue? = nil,
@@ -301,7 +341,8 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     keyframesOnly: Bool? = nil,
     motionBackend: String? = nil,
     keyframeBackend: String? = nil,
-    audioKey: String? = nil
+    audioKey: String? = nil,
+    renderOverrides: JSONValue? = nil
   ) {
     self.storyboard = storyboard
     self.bundle_key = bundleKey
@@ -318,6 +359,7 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     self.motion_backend = motionBackend
     self.keyframe_backend = keyframeBackend
     self.audioKey = audioKey
+    self.renderOverrides = renderOverrides
   }
 }
 
@@ -353,9 +395,23 @@ public struct RenderRow: Codable, Sendable, Identifiable, Equatable {
   public var parent_id: JSONValue?
   public var render_overrides: JSONValue?
   public var storyboard: JSONValue?
+  public var locked_shots: [String]?
+  public var lockedShots: [String]?
+  public var keyframes: [JSONValue]?
 
   public var isScatterParent: Bool {
     (job_id ?? "").hasPrefix("scatter-")
+  }
+
+  public var resolvedLockedShots: [String] {
+    lockedShots ?? locked_shots ?? []
+  }
+
+  public var keyframeShotIds: [String] {
+    (keyframes ?? []).compactMap { kf in
+      kf.objectValue?["shot_id"]?.stringValue
+        ?? kf.objectValue?["id"]?.stringValue
+    }
   }
 }
 

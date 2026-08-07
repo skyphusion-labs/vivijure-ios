@@ -74,6 +74,35 @@ struct SettingsView: View {
           .disabled(app.busy)
         }
 
+        if app.demoAvailable == true {
+          Section("Demo mode") {
+            Text("Host has demo AUTH surfaces enabled.")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+            ForEach(Array(app.demoScenes.enumerated()), id: \.offset) { _, scene in
+              let name = scene.stringValue
+                ?? scene.objectValue?["id"]?.stringValue
+                ?? scene.objectValue?["name"]?.stringValue
+                ?? scene.prettyJSON().prefix(40).description
+              Button("Render demo: \(name)") {
+                Task { await app.runDemoRender(scene: String(name)) }
+              }
+              .disabled(app.busy)
+            }
+            if let jid = app.demoJobId {
+              Text("Job \(jid): \(app.demoStatus)")
+                .font(.caption.monospaced())
+            }
+            DemoChatRow()
+          }
+        } else if app.demoAvailable == false {
+          Section("Demo mode") {
+            Text("Not available on this host (or 404).")
+              .font(.caption2)
+              .foregroundStyle(.secondary)
+          }
+        }
+
         if let err = app.lastError {
           Section("Last error") {
             Text(err).font(.caption).foregroundStyle(.red)
@@ -117,5 +146,28 @@ struct SettingsView: View {
     }
     await app.savePrefs(JSONValue.from(any))
     prefsStatus = "Saved"
+  }
+}
+
+struct DemoChatRow: View {
+  @EnvironmentObject private var app: AppState
+  @State private var message = ""
+  @State private var reply = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      TextField("Demo chat message", text: $message)
+      Button("Send") {
+        Task {
+          if let r = await app.runDemoChat(message: message) {
+            reply = r
+          }
+        }
+      }
+      .disabled(message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || app.busy)
+      if !reply.isEmpty {
+        Text(reply).font(.caption)
+      }
+    }
   }
 }

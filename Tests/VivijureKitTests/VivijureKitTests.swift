@@ -150,4 +150,57 @@ final class VivijureKitTests: XCTestCase {
     let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
     XCTAssertTrue(row.isScatterParent)
   }
+
+  func testRenderConfigSchemaParses() throws {
+    let json = """
+    {
+      "modules": [
+        {
+          "name": "keyframe-sdxl",
+          "provides": [{"id": "keyframe", "label": "SDXL keyframes"}],
+          "config_schema": {
+            "steps": {"type": "int", "default": 20, "min": 1, "max": 50, "label": "Steps"},
+            "quality_tier": {"type": "enum", "values": ["draft"], "default": "draft"},
+            "notify_email": {"type": "string", "default": "", "scope": "install"}
+          }
+        }
+      ]
+    }
+    """
+    let mods = try JSONDecoder().decode(ModulesResponse.self, from: Data(json.utf8))
+    let schema = RenderConfigSchema.modules(from: mods)
+    XCTAssertEqual(schema.count, 1)
+    XCTAssertEqual(schema[0].fields.count, 1)
+    XCTAssertEqual(schema[0].fields[0].key, "steps")
+    let overrides = RenderConfigSchema.buildOverrides(
+      motionBackend: "own-gpu",
+      fieldValues: ["keyframe-sdxl.steps": .number(30)]
+    )
+    let o = overrides.objectValue
+    XCTAssertEqual(o?["motion_backend"]?.stringValue, "own-gpu")
+    XCTAssertEqual(
+      o?["config"]?.objectValue?["keyframe-sdxl"]?.objectValue?["steps"]?.doubleValue,
+      30
+    )
+  }
+
+  func testScorePromptScaffold() {
+    let sb: JSONValue = .object([
+      "style_prefix": .string("noir"),
+      "scenes": .array([.object(["prompt": .string("rain"), "act": .string("1")])]),
+      "duration_seconds": .number(12),
+    ])
+    let p = RenderConfigSchema.scorePromptScaffold(storyboard: sb, brief: "chase")
+    XCTAssertTrue(p.contains("Instrumental"))
+    XCTAssertTrue(p.contains("noir") || p.contains("chase"))
+  }
+
+  func testKeyframeShotIds() throws {
+    let json = """
+    {"id":9,"status":"COMPLETED","keyframes":[{"shot_id":"s1"},{"shot_id":"s2"}],"locked_shots":["s1"]}
+    """
+    let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
+    XCTAssertEqual(row.keyframeShotIds, ["s1", "s2"])
+    XCTAssertEqual(row.resolvedLockedShots, ["s1"])
+  }
 }
