@@ -529,9 +529,17 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func animateCloud(id: Int, model: String? = nil, audioKey: String? = nil) async throws -> JSONValue {
+  public func animateCloud(
+    id: Int,
+    model: String? = nil,
+    perShot: [String: String]? = nil,
+    audioKey: String? = nil
+  ) async throws -> JSONValue {
     var obj: [String: JSONValue] = [:]
     if let model { obj["model"] = .string(model) }
+    if let perShot, let ps = RenderConfigSchema.perShotJSON(perShot) {
+      obj["perShot"] = ps
+    }
     if let audioKey { obj["audioKey"] = .string(audioKey) }
     return try await http.sendJSON(
       JSONValue.self,

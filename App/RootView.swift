@@ -2,6 +2,7 @@ import SwiftUI
 
 struct RootView: View {
   @EnvironmentObject private var app: AppState
+  @Environment(\.scenePhase) private var scenePhase
 
   var body: some View {
     Group {
@@ -10,6 +11,16 @@ struct RootView: View {
           .task { await app.bootstrap() }
       } else {
         OnboardingView()
+      }
+    }
+    .onChange(of: scenePhase) { phase in
+      switch phase {
+      case .active:
+        app.onAppBecameActive()
+      case .background:
+        app.onAppWentBackground()
+      default:
+        break
       }
     }
   }

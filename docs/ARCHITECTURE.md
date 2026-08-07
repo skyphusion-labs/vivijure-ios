@@ -13,9 +13,8 @@ Parity checklist: [PARITY.md](PARITY.md).
 
 ## Status
 
-**0.1 WIP.** Kit + shell track the web planner CONTRACT for plan/cast/bundle/audio/render/history,
-cast library, modules install/config, prefs, storage, and demo (when enabled). Remaining polish:
-per-shot hybrid backend maps, expert JSON merge UI. No App Store release yet.
+**0.1 WIP.** Kit + shell track the web planner CONTRACT end to end (including expert overrides,
+per-shot cloud/hybrid maps, poll resume). No App Store release yet.
 
 ## Layers
 

@@ -148,6 +148,73 @@ public enum RenderConfigSchema {
     return .object(out)
   }
 
+  /// Web `mergeExpert`: shallow-merge top-level keys; deep-merge `config` by module name.
+  public static func mergeExpert(base: JSONValue, expert: JSONValue) -> JSONValue {
+    var out = base.objectValue ?? [:]
+    guard let exp = expert.objectValue else { return base }
+    for (k, v) in exp where k != "config" {
+      out[k] = v
+    }
+    if exp["config"] != nil || out["config"] != nil {
+      var cfg = out["config"]?.objectValue ?? [:]
+      if let expCfg = exp["config"]?.objectValue {
+        for (name, fields) in expCfg {
+          var merged = cfg[name]?.objectValue ?? [:]
+          if let fieldObj = fields.objectValue {
+            for (fk, fv) in fieldObj {
+              merged[fk] = fv
+            }
+          }
+          cfg[name] = .object(merged)
+        }
+      }
+      out["config"] = .object(cfg)
+    }
+    return .object(out)
+  }
+
+  /// Parse expert JSON text; returns nil when blank. Throws on invalid JSON.
+  public static func parseExpertJSON(_ raw: String) throws -> JSONValue? {
+    let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    if t.isEmpty { return nil }
+    guard let data = t.data(using: .utf8) else {
+      throw RenderConfigError.invalidExpertJSON("not utf-8")
+    }
+    let any: Any
+    do {
+      any = try JSONSerialization.jsonObject(with: data)
+    } catch {
+      throw RenderConfigError.invalidExpertJSON(error.localizedDescription)
+    }
+    return JSONValue.from(any)
+  }
+
+  /// Build animate-cloud `perShot` map: only non-empty model overrides.
+  public static func perShotJSON(_ map: [String: String]) -> JSONValue? {
+    let filtered = map.filter { !$0.value.isEmpty }
+    guard !filtered.isEmpty else { return nil }
+    return .object(filtered.mapValues { .string($0) })
+  }
+
+  /// Build hybrid `backends` map: shot_id -> { backend, model? }.
+  public static func hybridBackendsJSON(
+    choices: [String: String],
+    cloudModel: String?
+  ) -> JSONValue? {
+    // choices: shotId -> "gpu" | "cloud"
+    let explicit = choices.filter { $0.value == "gpu" || $0.value == "cloud" }
+    guard !explicit.isEmpty else { return nil }
+    var out: [String: JSONValue] = [:]
+    for (shot, backend) in explicit {
+      var entry: [String: JSONValue] = ["backend": .string(backend)]
+      if backend == "cloud", let cloudModel, !cloudModel.isEmpty {
+        entry["model"] = .string(cloudModel)
+      }
+      out[shot] = .object(entry)
+    }
+    return .object(out)
+  }
+
   /// Local score-prompt scaffold (when chat is unavailable); mirrors the instruction inputs.
   public static func scorePromptScaffold(storyboard: JSONValue, brief: String) -> String {
     let o = storyboard.objectValue ?? [:]
@@ -192,5 +259,15 @@ public enum RenderConfigSchema {
       return hooks.compactMap(\.stringValue)
     }
     return []
+  }
+}
+
+public enum RenderConfigError: Error, LocalizedError, Sendable {
+  case invalidExpertJSON(String)
+
+  public var errorDescription: String? {
+    switch self {
+    case .invalidExpertJSON(let m): return "expert JSON: \(m)"
+    }
   }
 }
