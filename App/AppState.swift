@@ -59,18 +59,27 @@ final class AppState: ObservableObject {
   @Published var notificationsEnabled: Bool = false
   /// Composite key "module.field" -> value for schema-driven render overrides.
   @Published var renderFieldValues: [String: JSONValue] = [:]
+  /// Expert raw JSON merged on top of schema knobs (web expert overrides).
+  @Published var expertRenderOverridesJSON: String = ""
+  @Published var expertJSONError: String?
   @Published var scorePrompt: String = ""
   @Published var cloudAnimateModel: String = ""
+  /// shotId -> cloud model override for animate-cloud perShot.
+  @Published var cloudPerShot: [String: String] = [:]
+  /// shotId -> "gpu" | "cloud" for animate-hybrid backends.
+  @Published var hybridPerShot: [String: String] = [:]
   @Published var demoAvailable: Bool?
   @Published var demoScenes: [JSONValue] = []
   @Published var demoJobId: String?
   @Published var demoStatus: String = ""
   @Published var busy: Bool = false
+  @Published var isPolling: Bool = false
 
   private let urlKey = "studio_url"
   private let tokenKey = "studio_token"
   private let sessionKey = "planner_session_v1"
   private let notifyKey = "notify_on_render"
+  private var pollTask: Task<Void, Never>?
 
   enum PlannerStep: String, CaseIterable, Identifiable {
     case plan = "Plan"
@@ -109,13 +118,42 @@ final class AppState: ObservableObject {
   }
 
   var currentRenderOverrides: JSONValue? {
-    let o = RenderConfigSchema.buildOverrides(
+    expertJSONError = nil
+    var base = RenderConfigSchema.buildOverrides(
       motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
       fieldValues: renderFieldValues
     )
-    if case .object(let map) = o, map.isEmpty { return nil }
-    // Always include motion_backend when set so collect matches web.
-    return o
+    do {
+      if let expert = try RenderConfigSchema.parseExpertJSON(expertRenderOverridesJSON) {
+        base = RenderConfigSchema.mergeExpert(base: base, expert: expert)
+      }
+    } catch {
+      expertJSONError = error.localizedDescription
+      // Still return schema base so a typo does not blank overrides mid-edit;
+      // submit path re-checks and hard-fails.
+    }
+    if case .object(let map) = base, map.isEmpty { return nil }
+    return base
+  }
+
+  /// Resolves overrides for submit; throws if expert JSON is invalid.
+  func resolvedRenderOverridesForSubmit() throws -> JSONValue? {
+    expertJSONError = nil
+    var base = RenderConfigSchema.buildOverrides(
+      motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
+      fieldValues: renderFieldValues
+    )
+    if let expert = try RenderConfigSchema.parseExpertJSON(expertRenderOverridesJSON) {
+      base = RenderConfigSchema.mergeExpert(base: base, expert: expert)
+    }
+    if case .object(let map) = base, map.isEmpty { return nil }
+    return base
+  }
+
+  var hasPendingRenderPoll: Bool {
+    guard let jid = renderJobId, !jid.isEmpty else { return false }
+    let terminal = ["COMPLETED", "FAILED", "CANCELLED", "done", "failed"]
+    return !terminal.contains { $0.caseInsensitiveCompare(renderStatus) == .orderedSame }
   }
 
   var client: VivijureClient? {
@@ -211,6 +249,11 @@ final class AppState: ObservableObject {
         demoAvailable = false
       }
       statusMessage = "Connected as \(whoami?.user ?? whoami?.email ?? "studio")"
+      // Resume in-flight poll after relaunch (session blob held job id).
+      if hasPendingRenderPoll {
+        statusMessage = "Resuming poll for \(renderJobId ?? "?")"
+        startRenderPoll()
+      }
     } catch {
       lastError = error.localizedDescription
     }
@@ -624,6 +667,18 @@ final class AppState: ObservableObject {
         lastError = "Pick a motion backend (required when multiple are installed)"
         return
       }
+      let overrides: JSONValue?
+      do {
+        overrides = try resolvedRenderOverridesForSubmit()
+      } catch {
+        lastError = error.localizedDescription
+        return
+      }
+      // Expert motion_backend wins if present.
+      var motion = keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend)
+      if let mb = overrides?.objectValue?["motion_backend"]?.stringValue, !mb.isEmpty {
+        motion = mb
+      }
       let body = StoryboardRenderRequest(
         storyboard: storyboard,
         bundleKey: bundleKey,
@@ -631,9 +686,9 @@ final class AppState: ObservableObject {
         projectId: selectedProjectId,
         castLoras: castLoras.isEmpty ? nil : castLoras,
         keyframesOnly: keyframesOnly ? true : nil,
-        motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
+        motionBackend: motion,
         audioKey: audioKey,
-        renderOverrides: currentRenderOverrides
+        renderOverrides: overrides
       )
       let job = try await client.submitStoryboardRender(body)
       guard let jid = job.resolvedJobId else {
@@ -645,7 +700,7 @@ final class AppState: ObservableObject {
       plannerStep = .history
       statusMessage = "Render \(jid)"
       persistSession()
-      await pollRenderLoop()
+      startRenderPoll()
     } catch {
       lastError = error.localizedDescription
     }
@@ -676,6 +731,17 @@ final class AppState: ObservableObject {
     if shards < 2 { shards = 2 }
     if shards > shotIds.count { shards = shotIds.count }
     do {
+      let overrides: JSONValue?
+      do {
+        overrides = try resolvedRenderOverridesForSubmit()
+      } catch {
+        lastError = error.localizedDescription
+        return
+      }
+      var motion = motionBackend
+      if let mb = overrides?.objectValue?["motion_backend"]?.stringValue, !mb.isEmpty {
+        motion = mb
+      }
       let body = ScatterRenderRequest(
         bundleKey: bundleKey,
         shotIds: shotIds,
@@ -684,8 +750,8 @@ final class AppState: ObservableObject {
         castLoras: castLoras,
         audioKey: audioKey,
         projectId: selectedProjectId,
-        motionBackend: motionBackend,
-        renderOverrides: currentRenderOverrides
+        motionBackend: motion,
+        renderOverrides: overrides
       )
       let job = try await client.submitScatterRender(body)
       guard let jid = job.resolvedJobId else {
@@ -697,18 +763,33 @@ final class AppState: ObservableObject {
       plannerStep = .history
       statusMessage = "Scatter \(jid) (\(shards) shards)"
       persistSession()
-      await pollRenderLoop()
+      startRenderPoll()
     } catch {
       lastError = error.localizedDescription
     }
   }
 
+  /// Start (or restart) the background-friendly poll task for `renderJobId`.
+  func startRenderPoll() {
+    pollTask?.cancel()
+    guard hasPendingRenderPoll else { return }
+    pollTask = Task { await pollRenderLoop() }
+  }
+
   func pollRenderLoop() async {
     guard let client, let jid = renderJobId else { return }
+    isPolling = true
+    BackgroundPoll.begin("vivijure-poll-\(jid)")
+    defer {
+      isPolling = false
+      BackgroundPoll.end()
+    }
     for _ in 0 ..< 120 {
+      if Task.isCancelled { return }
       do {
         let job = try await client.pollStoryboardRender(jobId: jid)
         renderStatus = job.status ?? job.phase ?? renderStatus
+        persistSession()
         let done = ["COMPLETED", "FAILED", "CANCELLED", "done", "failed"].contains {
           ($0.caseInsensitiveCompare(renderStatus) == .orderedSame)
         }
@@ -720,10 +801,25 @@ final class AppState: ObservableObject {
           return
         }
       } catch {
-        lastError = error.localizedDescription
+        if !Task.isCancelled {
+          lastError = error.localizedDescription
+        }
         return
       }
       try? await Task.sleep(nanoseconds: 8_000_000_000)
+    }
+  }
+
+  /// Call when app returns to foreground: re-arm background task and continue poll if needed.
+  func onAppBecameActive() {
+    if hasPendingRenderPoll, !isPolling {
+      startRenderPoll()
+    }
+  }
+
+  func onAppWentBackground() {
+    if hasPendingRenderPoll {
+      BackgroundPoll.begin("vivijure-poll-bg")
     }
   }
 
@@ -951,39 +1047,79 @@ final class AppState: ObservableObject {
     }
   }
 
-  func animateCloudHistory(id: Int) async {
+  func animateCloudHistory(id: Int, perShot: [String: String]? = nil) async {
     guard let client else { return }
     busy = true
     defer { busy = false }
     do {
+      let map = perShot ?? cloudPerShot
       _ = try await client.animateCloud(
         id: id,
         model: cloudAnimateModel.isEmpty ? nil : cloudAnimateModel,
+        perShot: map.isEmpty ? nil : map,
         audioKey: audioKey
       )
-      statusMessage = "Cloud animate submitted for #\(id)"
+      let n = map.filter { !$0.value.isEmpty }.count
+      statusMessage = "Cloud animate #\(id)" + (n > 0 ? " (\(n) per-shot overrides)" : "")
       await refreshHistory()
     } catch {
       lastError = error.localizedDescription
     }
   }
 
-  func animateHybridHistory(id: Int, defaultBackend: String = "gpu") async {
+  func animateHybridHistory(
+    id: Int,
+    defaultBackend: String = "gpu",
+    backends: [String: String]? = nil
+  ) async {
     guard let client else { return }
     busy = true
     defer { busy = false }
     do {
+      let choices = backends ?? hybridPerShot
+      let backendsJSON = RenderConfigSchema.hybridBackendsJSON(
+        choices: choices,
+        cloudModel: cloudAnimateModel.isEmpty ? nil : cloudAnimateModel
+      )
       _ = try await client.animateHybrid(
         id: id,
-        backends: nil,
+        backends: backendsJSON,
         defaultBackend: defaultBackend,
         defaultCloudModel: cloudAnimateModel.isEmpty ? nil : cloudAnimateModel,
         audioKey: audioKey
       )
-      statusMessage = "Hybrid animate submitted for #\(id)"
+      let cloudN = choices.values.filter { $0 == "cloud" }.count
+      statusMessage = "Hybrid animate #\(id)" + (cloudN > 0 ? " (\(cloudN) cloud shots)" : "")
       await refreshHistory()
     } catch {
       lastError = error.localizedDescription
+    }
+  }
+
+  func setCloudPerShot(shotId: String, model: String) {
+    if model.isEmpty {
+      cloudPerShot.removeValue(forKey: shotId)
+    } else {
+      cloudPerShot[shotId] = model
+    }
+  }
+
+  func setHybridPerShot(shotId: String, backend: String) {
+    if backend.isEmpty {
+      hybridPerShot.removeValue(forKey: shotId)
+    } else {
+      hybridPerShot[shotId] = backend
+    }
+  }
+
+  func seedPerShotMaps(from row: RenderRow) {
+    for shot in row.keyframeShotIds {
+      if cloudPerShot[shot] == nil {
+        cloudPerShot[shot] = ""
+      }
+      if hybridPerShot[shot] == nil {
+        hybridPerShot[shot] = "gpu"
+      }
     }
   }
 
@@ -1017,7 +1153,8 @@ final class AppState: ObservableObject {
         statusMessage = "Regen \(shotId) job \(jid)"
         renderJobId = jid
         renderStatus = job.status ?? "submitted"
-        await pollRenderLoop()
+        persistSession()
+        startRenderPoll()
       } else {
         statusMessage = "Regen submitted for \(shotId)"
       }
@@ -1299,6 +1436,8 @@ final class AppState: ObservableObject {
     var sceneStartImages: [String: String]?
     var motionBackend: String?
     var keyframesOnly: Bool?
+    var expertRenderOverridesJSON: String?
+    var renderStatus: String?
   }
 
   private struct SlotBlob: Codable {
@@ -1334,7 +1473,9 @@ final class AppState: ObservableObject {
       slots: slots,
       sceneStartImages: sceneStartImages,
       motionBackend: motionBackend,
-      keyframesOnly: keyframesOnly
+      keyframesOnly: keyframesOnly,
+      expertRenderOverridesJSON: expertRenderOverridesJSON,
+      renderStatus: renderStatus
     )
     if let data = try? JSONEncoder().encode(blob) {
       UserDefaults.standard.set(data, forKey: sessionKey)
@@ -1364,6 +1505,8 @@ final class AppState: ObservableObject {
     sceneStartImages = blob.sceneStartImages ?? [:]
     motionBackend = blob.motionBackend ?? ""
     keyframesOnly = blob.keyframesOnly ?? false
+    expertRenderOverridesJSON = blob.expertRenderOverridesJSON ?? ""
+    renderStatus = blob.renderStatus ?? renderStatus
     if let slots = blob.slots {
       castSlots = plannerSlotIDs.map { letter in
         if let s = slots.first(where: { $0.letter == letter }) {

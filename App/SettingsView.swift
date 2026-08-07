@@ -23,7 +23,7 @@ struct SettingsView: View {
           }
         }
 
-        Section("Notifications") {
+        Section("Notifications & polling") {
           Toggle(
             "Notify when render finishes",
             isOn: Binding(
@@ -31,7 +31,16 @@ struct SettingsView: View {
               set: { on in Task { await app.setNotificationsEnabled(on) } }
             )
           )
-          Text("Uses local UserNotifications when the app is backgrounded during poll.")
+          if app.isPolling, let jid = app.renderJobId {
+            LabeledContent("Polling", value: "\(jid) · \(app.renderStatus)")
+          } else if app.hasPendingRenderPoll, let jid = app.renderJobId {
+            VStack(alignment: .leading, spacing: 4) {
+              Text("Pending job \(jid) (\(app.renderStatus))")
+                .font(.caption)
+              Button("Resume poll") { app.startRenderPoll() }
+            }
+          }
+          Text("Polls resume after relaunch (session blob). beginBackgroundTask extends a short window when you leave the app mid-poll; full BGAppRefresh is not used (entitlement-heavy, still short).")
             .font(.caption2)
             .foregroundStyle(.secondary)
         }

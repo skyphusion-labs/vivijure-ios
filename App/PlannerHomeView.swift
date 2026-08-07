@@ -675,6 +675,29 @@ struct RenderStepView: View {
         }
       }
 
+      Section("Expert JSON overrides") {
+        Text("Merged on top of schema knobs (web expert path). Shape: { motion_backend?, config: { module: { knobs } } }.")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+        TextEditor(text: $app.expertRenderOverridesJSON)
+          .font(.system(.caption, design: .monospaced))
+          .frame(minHeight: 90)
+        if let err = app.expertJSONError {
+          Text(err).font(.caption2).foregroundStyle(.red)
+        }
+        Button("Validate / preview merge") {
+          _ = app.currentRenderOverrides
+          if app.expertJSONError == nil {
+            app.statusMessage = "Expert JSON ok"
+          }
+        }
+        if let merged = app.currentRenderOverrides, app.expertJSONError == nil {
+          Text(merged.prettyJSON())
+            .font(.system(.caption2, design: .monospaced))
+            .textSelection(.enabled)
+        }
+      }
+
       Section("Scatter / gather") {
         Toggle("Use scatter render", isOn: $app.useScatter)
           .disabled(shotCount < 2 || app.castLoras.isEmpty || app.keyframesOnly)
@@ -911,7 +934,7 @@ struct HistoryStepView: View {
 
             if !app.cloudMotionModels.isEmpty || !app.cloudAnimateModel.isEmpty {
               if !app.cloudMotionModels.isEmpty {
-                Picker("Cloud model", selection: $app.cloudAnimateModel) {
+                Picker("Default cloud model", selection: $app.cloudAnimateModel) {
                   ForEach(app.cloudMotionModels, id: \.self) { m in
                     Text(m).tag(m)
                   }
@@ -923,7 +946,7 @@ struct HistoryStepView: View {
               }
               .font(.caption)
               .disabled(app.busy)
-              Button("Animate hybrid (default GPU)") {
+              Button("Animate hybrid") {
                 Task { await app.animateHybridHistory(id: r.id, defaultBackend: "gpu") }
               }
               .font(.caption)
@@ -933,29 +956,63 @@ struct HistoryStepView: View {
             let shots = r.keyframeShotIds
             if !shots.isEmpty {
               DisclosureGroup("Keyframes (\(shots.count))") {
+                Text("Per-shot maps feed cloud perShot and hybrid backends on animate.")
+                  .font(.caption2)
+                  .foregroundStyle(.secondary)
                 ForEach(shots, id: \.self) { shot in
-                  HStack {
-                    Text(shot).font(.caption.monospaced())
-                    Spacer()
-                    let locked = r.resolvedLockedShots.contains(shot)
-                    Button(locked ? "Unlock" : "Lock") {
-                      Task {
-                        await app.toggleLockedShot(
-                          renderId: r.id,
-                          shotId: shot,
-                          currently: r.resolvedLockedShots
-                        )
+                  VStack(alignment: .leading, spacing: 4) {
+                    HStack {
+                      Text(shot).font(.caption.monospaced())
+                      Spacer()
+                      let locked = r.resolvedLockedShots.contains(shot)
+                      Button(locked ? "Unlock" : "Lock") {
+                        Task {
+                          await app.toggleLockedShot(
+                            renderId: r.id,
+                            shotId: shot,
+                            currently: r.resolvedLockedShots
+                          )
+                        }
                       }
+                      .font(.caption2)
+                      Button("Regen") {
+                        Task { await app.regenShot(renderId: r.id, shotId: shot) }
+                      }
+                      .font(.caption2)
+                      .disabled(app.busy || r.bundle_key == nil)
+                    }
+                    if !app.cloudMotionModels.isEmpty {
+                      Picker(
+                        "Cloud model",
+                        selection: Binding(
+                          get: { app.cloudPerShot[shot] ?? "" },
+                          set: { app.setCloudPerShot(shotId: shot, model: $0) }
+                        )
+                      ) {
+                        Text("default").tag("")
+                        ForEach(app.cloudMotionModels, id: \.self) { m in
+                          Text(m).tag(m)
+                        }
+                      }
+                      .font(.caption2)
+                    }
+                    Picker(
+                      "Hybrid lane",
+                      selection: Binding(
+                        get: { app.hybridPerShot[shot] ?? "gpu" },
+                        set: { app.setHybridPerShot(shotId: shot, backend: $0) }
+                      )
+                    ) {
+                      Text("GPU").tag("gpu")
+                      Text("Cloud").tag("cloud")
                     }
                     .font(.caption2)
-                    Button("Regen") {
-                      Task { await app.regenShot(renderId: r.id, shotId: shot) }
-                    }
-                    .font(.caption2)
-                    .disabled(app.busy || r.bundle_key == nil)
+                    .pickerStyle(.segmented)
                   }
+                  .padding(.vertical, 2)
                 }
               }
+              .onAppear { app.seedPerShotMaps(from: r) }
             }
           }
           .padding(.vertical, 2)

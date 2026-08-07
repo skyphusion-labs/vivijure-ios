@@ -203,4 +203,46 @@ final class VivijureKitTests: XCTestCase {
     XCTAssertEqual(row.keyframeShotIds, ["s1", "s2"])
     XCTAssertEqual(row.resolvedLockedShots, ["s1"])
   }
+
+  func testMergeExpertDeepConfig() {
+    let base: JSONValue = .object([
+      "motion_backend": .string("own-gpu"),
+      "config": .object([
+        "keyframe-sdxl": .object(["steps": .number(20)]),
+      ]),
+    ])
+    let expert: JSONValue = .object([
+      "motion_backend": .string("seedance"),
+      "config": .object([
+        "keyframe-sdxl": .object(["guidance": .number(7)]),
+        "other": .object(["x": .string("y")]),
+      ]),
+    ])
+    let m = RenderConfigSchema.mergeExpert(base: base, expert: expert)
+    let o = m.objectValue
+    XCTAssertEqual(o?["motion_backend"]?.stringValue, "seedance")
+    XCTAssertEqual(o?["config"]?.objectValue?["keyframe-sdxl"]?.objectValue?["steps"]?.doubleValue, 20)
+    XCTAssertEqual(o?["config"]?.objectValue?["keyframe-sdxl"]?.objectValue?["guidance"]?.doubleValue, 7)
+    XCTAssertEqual(o?["config"]?.objectValue?["other"]?.objectValue?["x"]?.stringValue, "y")
+  }
+
+  func testParseExpertJSON() throws {
+    XCTAssertNil(try RenderConfigSchema.parseExpertJSON("  "))
+    let v = try RenderConfigSchema.parseExpertJSON(#"{"motion_backend":"own-gpu"}"#)
+    XCTAssertEqual(v?.objectValue?["motion_backend"]?.stringValue, "own-gpu")
+    XCTAssertThrowsError(try RenderConfigSchema.parseExpertJSON("{nope"))
+  }
+
+  func testPerShotAndHybridMaps() {
+    let ps = RenderConfigSchema.perShotJSON(["s1": "seedance", "s2": ""])
+    XCTAssertEqual(ps?.objectValue?["s1"]?.stringValue, "seedance")
+    XCTAssertNil(ps?.objectValue?["s2"])
+    let hy = RenderConfigSchema.hybridBackendsJSON(
+      choices: ["s1": "cloud", "s2": "gpu"],
+      cloudModel: "seedance"
+    )
+    XCTAssertEqual(hy?.objectValue?["s1"]?.objectValue?["backend"]?.stringValue, "cloud")
+    XCTAssertEqual(hy?.objectValue?["s1"]?.objectValue?["model"]?.stringValue, "seedance")
+    XCTAssertEqual(hy?.objectValue?["s2"]?.objectValue?["backend"]?.stringValue, "gpu")
+  }
 }
