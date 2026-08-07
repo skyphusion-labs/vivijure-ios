@@ -26,3 +26,26 @@ jobs:
         run: swift test --package-path .
         env:
           DEVELOPER_DIR: ${{ runner.os == 'macOS' && '/Applications/Xcode.app/Contents/Developer' || '' }}
+
+  # `ci` is a REQUIRED status check in the org `aviation-grade-main-org` ruleset and is
+  # matched by STRING against the check-run name, which is a job's `name:`. It matches
+  # neither the workflow filename nor this workflow's own `name:` field, so a workflow
+  # called `ci` whose only job is `kit` does not produce a check named `ci`.
+  #
+  # This aggregate job supplies that name while keeping `kit` separately visible.
+  # `if: ${{ !cancelled() }}` plus an explicit `test` per component is load-bearing:
+  # a `needs:`-only job SKIPS when a component fails, and a skipped job still produces
+  # a check run whose conclusion SATISFIES a required context, so the aggregate would
+  # go green on exactly the failure it exists to report. Canonical shape:
+  # postern/.github/workflows/ci.yml, and fleet-chezmoi
+  # docs/runbooks/aviation-grade-main.md section 4.
+  ci:
+    name: ci
+    needs: [kit]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all component jobs
+        run: |
+          test "${{ needs.kit.result }}" = "success"
