@@ -151,14 +151,137 @@ public struct VivijureClient: Sendable {
     return r.cast
   }
 
+  public func patchCast(id: String, name: String? = nil, bible: String? = nil, voiceId: String? = nil) async throws -> CastMember {
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    let r: CastItemResponse = try await http.sendJSON(
+      CastItemResponse.self,
+      method: "PATCH",
+      path: "/api/cast/\(enc)",
+      body: CastPatchRequest(name: name, bible: bible, voiceId: voiceId),
+      bearer: token
+    )
+    return r.cast
+  }
+
   public func deleteCast(id: String) async throws {
     struct Ok: Decodable { var ok: Bool? }
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
     _ = try await http.sendJSON(
       Ok.self,
       method: "DELETE",
-      path: "/api/cast/\(id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id)",
+      path: "/api/cast/\(enc)",
       bearer: token
     )
+  }
+
+  /// Form 1: raw image bytes to cast media routes (portrait / ref / source).
+  public func uploadCastImage(
+    castId: String,
+    kind: CastMediaKind,
+    data: Data,
+    mime: String
+  ) async throws -> CastMember {
+    let enc = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    let path: String
+    switch kind {
+    case .portrait: path = "/api/cast/\(enc)/portrait"
+    case .ref: path = "/api/cast/\(enc)/ref"
+    case .source: path = "/api/cast/\(enc)/source"
+    }
+    let raw = try await http.sendRaw(
+      method: "POST",
+      path: path,
+      body: data,
+      contentType: mime,
+      bearer: token
+    )
+    return try JSONDecoder().decode(CastItemResponse.self, from: raw).cast
+  }
+
+  public func deleteCastPortrait(id: String) async throws -> CastMember {
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    let r: CastItemResponse = try await http.sendJSON(
+      CastItemResponse.self,
+      method: "DELETE",
+      path: "/api/cast/\(enc)/portrait",
+      bearer: token
+    )
+    return r.cast
+  }
+
+  public func deleteCastRef(id: String, key: String) async throws -> CastMember {
+    struct Body: Encodable { var key: String }
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    let r: CastItemResponse = try await http.sendJSON(
+      CastItemResponse.self,
+      method: "DELETE",
+      path: "/api/cast/\(enc)/ref",
+      body: Body(key: key),
+      bearer: token
+    )
+    return r.cast
+  }
+
+  public func deleteCastSource(id: String, key: String) async throws -> CastMember {
+    struct Body: Encodable { var key: String }
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    let r: CastItemResponse = try await http.sendJSON(
+      CastItemResponse.self,
+      method: "DELETE",
+      path: "/api/cast/\(enc)/source",
+      body: Body(key: key),
+      bearer: token
+    )
+    return r.cast
+  }
+
+  public func trainLora(castId: String) async throws -> LoraStatusResponse {
+    let enc = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    return try await http.sendJSON(
+      LoraStatusResponse.self,
+      method: "POST",
+      path: "/api/cast/\(enc)/train-lora",
+      body: JSONValue.object([:]),
+      bearer: token
+    )
+  }
+
+  public func trainWanLora(castId: String) async throws -> LoraStatusResponse {
+    let enc = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    return try await http.sendJSON(
+      LoraStatusResponse.self,
+      method: "POST",
+      path: "/api/cast/\(enc)/train-wan-lora",
+      body: JSONValue.object([:]),
+      bearer: token
+    )
+  }
+
+  public func loraStatus(castId: String) async throws -> LoraStatusResponse {
+    let enc = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    return try await http.sendJSON(
+      LoraStatusResponse.self,
+      method: "GET",
+      path: "/api/cast/\(enc)/lora-status",
+      bearer: token
+    )
+  }
+
+  public func generateRefs(castId: String, body: JSONValue = .object([:])) async throws -> JSONValue {
+    let enc = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/cast/\(enc)/generate-refs",
+      body: body,
+      bearer: token
+    )
+  }
+
+  public enum CastMediaKind: String, Sendable {
+    case portrait
+    case ref
+    case source
   }
 
   // MARK: - Plan / preflight / bundle
@@ -193,12 +316,31 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func bundle(storyboard: JSONValue, characterRefs: JSONValue) async throws -> BundleResponse {
+  public func bundle(
+    storyboard: JSONValue,
+    characterRefs: JSONValue,
+    sceneStartImages: JSONValue? = nil
+  ) async throws -> BundleResponse {
     try await http.sendJSON(
       BundleResponse.self,
       method: "POST",
       path: "/api/storyboard/bundle",
-      body: BundleRequest(storyboard: storyboard, characterRefs: characterRefs),
+      body: BundleRequest(
+        storyboard: storyboard,
+        characterRefs: characterRefs,
+        sceneStartImages: sceneStartImages
+      ),
+      bearer: token
+    )
+  }
+
+  public func storyboardYaml(storyboard: JSONValue) async throws -> YamlResponse {
+    struct Body: Encodable { var storyboard: JSONValue }
+    return try await http.sendJSON(
+      YamlResponse.self,
+      method: "POST",
+      path: "/api/storyboard/yaml",
+      body: Body(storyboard: storyboard),
       bearer: token
     )
   }
@@ -252,9 +394,10 @@ public struct VivijureClient: Sendable {
 
   // MARK: - History / artifacts / upload
 
-  public func listRenders(projectId: Int? = nil) async throws -> [RenderRow] {
+  public func listRenders(projectId: Int? = nil, limit: Int? = nil) async throws -> [RenderRow] {
     var q: [URLQueryItem] = []
     if let projectId { q.append(URLQueryItem(name: "project_id", value: String(projectId))) }
+    if let limit { q.append(URLQueryItem(name: "limit", value: String(limit))) }
     let r: RendersListResponse = try await http.sendJSON(
       RendersListResponse.self,
       method: "GET",
@@ -263,6 +406,47 @@ public struct VivijureClient: Sendable {
       query: q
     )
     return r.renders
+  }
+
+  public func listRenderTags() async throws -> [String] {
+    let r: TagsListResponse = try await http.sendJSON(
+      TagsListResponse.self,
+      method: "GET",
+      path: "/api/storyboard/renders/tags",
+      bearer: token
+    )
+    return r.tags
+  }
+
+  public func patchRender(id: Int, label: String? = nil, tags: [String]? = nil, folderPath: String? = nil) async throws -> RenderRow {
+    try await http.sendJSON(
+      RenderRow.self,
+      method: "PATCH",
+      path: "/api/storyboard/renders/\(id)",
+      body: RenderPatchRequest(label: label, tags: tags, folderPath: folderPath),
+      bearer: token
+    )
+  }
+
+  public func deleteRender(id: Int) async throws {
+    struct Ok: Decodable { var ok: Bool? }
+    _ = try await http.sendJSON(
+      Ok.self,
+      method: "DELETE",
+      path: "/api/storyboard/renders/\(id)",
+      bearer: token
+    )
+  }
+
+  public func addAudioToRender(id: Int, audioKey: String) async throws -> JSONValue {
+    struct Body: Encodable { var audioKey: String }
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(id)/add-audio",
+      body: Body(audioKey: audioKey),
+      bearer: token
+    )
   }
 
   public func uploadImage(data: Data, mime: String) async throws -> UploadResponse {

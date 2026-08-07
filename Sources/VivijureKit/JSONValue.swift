@@ -57,6 +57,33 @@ public enum JSONValue: Codable, Sendable, Equatable {
     return nil
   }
 
+  public var doubleValue: Double? {
+    if case .number(let d) = self { return d }
+    if case .string(let s) = self { return Double(s) }
+    return nil
+  }
+
+  public var boolValue: Bool? {
+    if case .bool(let b) = self { return b }
+    return nil
+  }
+
+  public var intValue: Int? {
+    if let d = doubleValue { return Int(d) }
+    return nil
+  }
+
+  /// Mutating helper: set a key on an object, or replace self with a new object.
+  public mutating func setObjectKey(_ key: String, _ value: JSONValue?) {
+    var o = objectValue ?? [:]
+    if let value {
+      o[key] = value
+    } else {
+      o.removeValue(forKey: key)
+    }
+    self = .object(o)
+  }
+
   /// Pretty JSON for UI display.
   public func prettyJSON(sortedKeys: Bool = true) -> String {
     let any = toAny()

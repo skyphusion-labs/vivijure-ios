@@ -13,7 +13,9 @@ Parity checklist: [PARITY.md](PARITY.md).
 
 ## Status
 
-**Skeleton.** Kit + scaffold only. No App Store release. Pre-0.1.
+**0.1 WIP.** Kit covers core planner + cast media + history mutation routes. SwiftUI shell has
+stepped planner (scenes, slots, refine, audio BPM, history open) + Cast detail (photo upload,
+train LoRA). No App Store release yet.
 
 ## Layers
 

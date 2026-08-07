@@ -85,9 +85,51 @@ public struct CastMember: Codable, Sendable, Identifiable, Equatable {
   public var bible: String?
   public var voice_id: String?
   public var portrait_key: String?
+  public var portrait_mime: String?
   public var lora_status: String?
+  /// CONTRACT: `{ key, mime }[]` training refs.
+  public var ref_keys: [CastImageKey]?
+  /// CONTRACT: source photos `{ key, mime }[]`.
+  public var source_keys: [CastImageKey]?
+  /// Legacy / alternate projections some hosts may still emit.
   public var refs: JSONValue?
   public var sources: JSONValue?
+
+  public init(
+    id: String,
+    name: String,
+    bible: String? = nil,
+    voice_id: String? = nil,
+    portrait_key: String? = nil,
+    portrait_mime: String? = nil,
+    lora_status: String? = nil,
+    ref_keys: [CastImageKey]? = nil,
+    source_keys: [CastImageKey]? = nil,
+    refs: JSONValue? = nil,
+    sources: JSONValue? = nil
+  ) {
+    self.id = id
+    self.name = name
+    self.bible = bible
+    self.voice_id = voice_id
+    self.portrait_key = portrait_key
+    self.portrait_mime = portrait_mime
+    self.lora_status = lora_status
+    self.ref_keys = ref_keys
+    self.source_keys = source_keys
+    self.refs = refs
+    self.sources = sources
+  }
+}
+
+public struct CastImageKey: Codable, Sendable, Equatable {
+  public var key: String
+  public var mime: String?
+
+  public init(key: String, mime: String? = nil) {
+    self.key = key
+    self.mime = mime
+  }
 }
 
 public struct CastListResponse: Codable, Sendable {
@@ -160,11 +202,64 @@ public struct PreflightResponse: Codable, Sendable {
 public struct BundleRequest: Codable, Sendable {
   public var storyboard: JSONValue
   public var characterRefs: JSONValue
+  public var sceneStartImages: JSONValue?
 
-  public init(storyboard: JSONValue, characterRefs: JSONValue) {
+  public init(
+    storyboard: JSONValue,
+    characterRefs: JSONValue,
+    sceneStartImages: JSONValue? = nil
+  ) {
     self.storyboard = storyboard
     self.characterRefs = characterRefs
+    self.sceneStartImages = sceneStartImages
   }
+}
+
+public struct YamlResponse: Codable, Sendable {
+  public var ok: Bool?
+  public var yaml: String?
+  public var error: String?
+  public var errors: [JSONValue]?
+}
+
+public struct RenderPatchRequest: Codable, Sendable {
+  public var label: String?
+  public var tags: [String]?
+  public var folderPath: String?
+
+  public init(label: String? = nil, tags: [String]? = nil, folderPath: String? = nil) {
+    self.label = label
+    self.tags = tags
+    self.folderPath = folderPath
+  }
+}
+
+public struct TagsListResponse: Codable, Sendable {
+  public var tags: [String]
+}
+
+public struct CastPatchRequest: Codable, Sendable {
+  public var name: String?
+  public var bible: String?
+  public var voice_id: String?
+
+  public init(name: String? = nil, bible: String? = nil, voiceId: String? = nil) {
+    self.name = name
+    self.bible = bible
+    self.voice_id = voiceId
+  }
+}
+
+public struct LoraStatusResponse: Codable, Sendable {
+  public var cast: CastMember?
+  public var view: JSONValue?
+  public var ok: Bool?
+  public var jobId: String?
+  public var job_id: String?
+  public var status: String?
+  public var error: String?
+
+  public var resolvedJobId: String? { jobId ?? job_id }
 }
 
 public struct BundleResponse: Codable, Sendable {
