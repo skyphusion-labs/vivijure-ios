@@ -57,6 +57,14 @@ final class AppState: ObservableObject {
   @Published var installedModules: [JSONValue] = []
   @Published var storageUsage: StorageUsageResponse?
   @Published var notificationsEnabled: Bool = false
+  /// Composite key "module.field" -> value for schema-driven render overrides.
+  @Published var renderFieldValues: [String: JSONValue] = [:]
+  @Published var scorePrompt: String = ""
+  @Published var cloudAnimateModel: String = ""
+  @Published var demoAvailable: Bool?
+  @Published var demoScenes: [JSONValue] = []
+  @Published var demoJobId: String?
+  @Published var demoStatus: String = ""
   @Published var busy: Bool = false
 
   private let urlKey = "studio_url"
@@ -87,8 +95,27 @@ final class AppState: ObservableObject {
     StoryboardMutator.motionBackends(from: modules)
   }
 
+  /// Cloud motion backends (non own-gpu) for animate-cloud model picker.
+  var cloudMotionModels: [String] {
+    motionBackends.filter { $0 != "own-gpu" && !$0.contains("own-gpu") }
+  }
+
   var castLoras: [String: String] {
     castBindings
+  }
+
+  var renderConfigModules: [RenderConfigModule] {
+    RenderConfigSchema.modules(from: modules)
+  }
+
+  var currentRenderOverrides: JSONValue? {
+    let o = RenderConfigSchema.buildOverrides(
+      motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
+      fieldValues: renderFieldValues
+    )
+    if case .object(let map) = o, map.isEmpty { return nil }
+    // Always include motion_backend when set so collect matches web.
+    return o
   }
 
   var client: VivijureClient? {
@@ -166,15 +193,45 @@ final class AppState: ObservableObject {
       cast = try await c
       await loadModels(client: client)
       qualityTier = modules?.defaultQualityTier ?? "final"
-      if motionBackend.isEmpty, let first = motionBackends.first {
+      if motionBackend.isEmpty, motionBackends.count == 1, let first = motionBackends.first {
+        // Match web: single backend gets an explicit default; 2+ require a pick.
         motionBackend = first
       }
+      if cloudAnimateModel.isEmpty, let first = cloudMotionModels.first {
+        cloudAnimateModel = first
+      }
+      seedRenderFieldDefaults()
       if let p = try? await client.getPrefs() {
         prefs = p
+      }
+      if let menu = try? await client.demoMenu() {
+        demoAvailable = menu.available
+        demoScenes = menu.scenes ?? []
+      } else {
+        demoAvailable = false
       }
       statusMessage = "Connected as \(whoami?.user ?? whoami?.email ?? "studio")"
     } catch {
       lastError = error.localizedDescription
+    }
+  }
+
+  func seedRenderFieldDefaults() {
+    for mod in renderConfigModules {
+      for field in mod.fields {
+        let id = field.id
+        if renderFieldValues[id] == nil, let def = field.defaultValue {
+          renderFieldValues[id] = def
+        }
+      }
+    }
+  }
+
+  func setRenderField(_ field: RenderConfigField, value: JSONValue?) {
+    if let value {
+      renderFieldValues[field.id] = value
+    } else {
+      renderFieldValues.removeValue(forKey: field.id)
     }
   }
 
@@ -563,6 +620,10 @@ final class AppState: ObservableObject {
         await runScatterRender(client: client, storyboard: storyboard)
         return
       }
+      if !keyframesOnly, motionBackends.count > 1, motionBackend.isEmpty {
+        lastError = "Pick a motion backend (required when multiple are installed)"
+        return
+      }
       let body = StoryboardRenderRequest(
         storyboard: storyboard,
         bundleKey: bundleKey,
@@ -571,7 +632,8 @@ final class AppState: ObservableObject {
         castLoras: castLoras.isEmpty ? nil : castLoras,
         keyframesOnly: keyframesOnly ? true : nil,
         motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
-        audioKey: audioKey
+        audioKey: audioKey,
+        renderOverrides: currentRenderOverrides
       )
       let job = try await client.submitStoryboardRender(body)
       guard let jid = job.resolvedJobId else {
@@ -622,7 +684,8 @@ final class AppState: ObservableObject {
         castLoras: castLoras,
         audioKey: audioKey,
         projectId: selectedProjectId,
-        motionBackend: motionBackend
+        motionBackend: motionBackend,
+        renderOverrides: currentRenderOverrides
       )
       let job = try await client.submitScatterRender(body)
       guard let jid = job.resolvedJobId else {
@@ -885,6 +948,168 @@ final class AppState: ObservableObject {
       await refreshHistory()
     } catch {
       lastError = error.localizedDescription
+    }
+  }
+
+  func animateCloudHistory(id: Int) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.animateCloud(
+        id: id,
+        model: cloudAnimateModel.isEmpty ? nil : cloudAnimateModel,
+        audioKey: audioKey
+      )
+      statusMessage = "Cloud animate submitted for #\(id)"
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func animateHybridHistory(id: Int, defaultBackend: String = "gpu") async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.animateHybrid(
+        id: id,
+        backends: nil,
+        defaultBackend: defaultBackend,
+        defaultCloudModel: cloudAnimateModel.isEmpty ? nil : cloudAnimateModel,
+        audioKey: audioKey
+      )
+      statusMessage = "Hybrid animate submitted for #\(id)"
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func setLockedShots(renderId: Int, shots: [String]) async {
+    guard let client else { return }
+    do {
+      _ = try await client.patchRender(id: renderId, lockedShots: shots)
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func toggleLockedShot(renderId: Int, shotId: String, currently: [String]) async {
+    var next = Set(currently)
+    if next.contains(shotId) {
+      next.remove(shotId)
+    } else {
+      next.insert(shotId)
+    }
+    await setLockedShots(renderId: renderId, shots: Array(next).sorted())
+  }
+
+  func regenShot(renderId: Int, shotId: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let job = try await client.regenShot(renderId: renderId, shotId: shotId)
+      if let jid = job.resolvedJobId {
+        statusMessage = "Regen \(shotId) job \(jid)"
+        renderJobId = jid
+        renderStatus = job.status ?? "submitted"
+        await pollRenderLoop()
+      } else {
+        statusMessage = "Regen submitted for \(shotId)"
+      }
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func suggestScorePrompt(force: Bool = true) async {
+    guard let storyboard else {
+      lastError = "Plan a storyboard first"
+      return
+    }
+    if !force, !scorePrompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      return
+    }
+    // Prefer /api/chat when a plan model is set; fall back to local scaffold.
+    if let client, !planModel.isEmpty {
+      busy = true
+      defer { busy = false }
+      let scenes = storyboard.objectValue?["scenes"]?.arrayValue ?? []
+      let arc = scenes.enumerated().map { i, s in
+        let o = s.objectValue ?? [:]
+        return "\(i + 1). [\(o["act"]?.stringValue ?? "?")] \(String((o["prompt"]?.stringValue ?? "").prefix(80)))"
+      }.joined(separator: "\n")
+      let dur = storyboard.objectValue?["duration_seconds"]?.doubleValue
+        ?? Double(scenes.count) * (storyboard.objectValue?["clip_seconds"]?.doubleValue ?? 4)
+      let instruction =
+        "You are writing the single best text prompt for an AI music generator "
+        + "to SCORE a short cinematic/anime video. Output ONE "
+        + "concise INSTRUMENTAL music prompt only: 2 to 4 sentences, no preamble, no "
+        + "quotes, do not address me. Describe the MUSIC ONLY (genre/style, tempo in "
+        + "BPM if the material implies one, mood, the key instruments, and how the "
+        + "energy should build and hit across roughly \(Int(dur)) seconds so it lands "
+        + "with the on-screen action). Do not mention characters, the camera, or "
+        + "visuals; translate them into musical terms.\n\n"
+        + "Video concept: \(storyboard.objectValue?["full_prompt"]?.stringValue ?? "(none)")\n"
+        + "Visual style: \(storyboard.objectValue?["style_prefix"]?.stringValue ?? "(none)")\n"
+        + (brief.isEmpty ? "" : "Original brief: \(brief)\n")
+        + "Shot arc (act + gist):\n\(arc.isEmpty ? "(none)" : arc)"
+      do {
+        let r = try await client.chat(model: planModel, userInput: instruction)
+        if let out = r.output?.trimmingCharacters(in: .whitespacesAndNewlines), !out.isEmpty {
+          scorePrompt = out
+          statusMessage = "Score prompt suggested"
+          return
+        }
+      } catch {
+        // Fall through to scaffold.
+        lastError = nil
+      }
+    }
+    scorePrompt = RenderConfigSchema.scorePromptScaffold(storyboard: storyboard, brief: brief)
+    statusMessage = "Score prompt scaffold (local)"
+  }
+
+  func runDemoRender(scene: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let r = try await client.demoRender(scene: scene)
+      guard let jid = r.resolvedJobId else {
+        lastError = r.error ?? "No demo job id"
+        return
+      }
+      demoJobId = jid
+      demoStatus = r.status ?? "submitted"
+      for _ in 0 ..< 60 {
+        let poll = try await client.pollDemoRender(id: jid)
+        if case .object(let o) = poll {
+          demoStatus = o["status"]?.stringValue ?? demoStatus
+          let st = demoStatus.lowercased()
+          if ["completed", "failed", "done", "error"].contains(st) { break }
+        }
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+      }
+      statusMessage = "Demo \(demoStatus)"
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func runDemoChat(message: String) async -> String? {
+    guard let client else { return nil }
+    do {
+      let r = try await client.demoChat(message: message)
+      return r.reply ?? r.output
+    } catch {
+      lastError = error.localizedDescription
+      return nil
     }
   }
 

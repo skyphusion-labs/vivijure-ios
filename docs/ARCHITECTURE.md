@@ -13,10 +13,9 @@ Parity checklist: [PARITY.md](PARITY.md).
 
 ## Status
 
-**0.1 WIP.** Kit covers planner, cast media/train/export, scatter, history post-actions, modules
-install/config, prefs, storage. SwiftUI shell tracks web stepper + Cast / Modules / Settings.
-Remaining: schema-driven render overrides UI, animate-hybrid, lockedShots/regen, demo mode.
-No App Store release yet.
+**0.1 WIP.** Kit + shell track the web planner CONTRACT for plan/cast/bundle/audio/render/history,
+cast library, modules install/config, prefs, storage, and demo (when enabled). Remaining polish:
+per-shot hybrid backend maps, expert JSON merge UI. No App Store release yet.
 
 ## Layers
 

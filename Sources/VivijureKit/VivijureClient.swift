@@ -451,12 +451,34 @@ public struct VivijureClient: Sendable {
     return r.tags
   }
 
-  public func patchRender(id: Int, label: String? = nil, tags: [String]? = nil, folderPath: String? = nil) async throws -> RenderRow {
+  public func patchRender(
+    id: Int,
+    label: String? = nil,
+    tags: [String]? = nil,
+    folderPath: String? = nil,
+    lockedShots: [String]? = nil
+  ) async throws -> RenderRow {
     try await http.sendJSON(
       RenderRow.self,
       method: "PATCH",
       path: "/api/storyboard/renders/\(id)",
-      body: RenderPatchRequest(label: label, tags: tags, folderPath: folderPath),
+      body: RenderPatchRequest(
+        label: label,
+        tags: tags,
+        folderPath: folderPath,
+        lockedShots: lockedShots
+      ),
+      bearer: token
+    )
+  }
+
+  public func regenShot(renderId: Int, shotId: String) async throws -> RenderJobResponse {
+    struct Body: Encodable { var shotId: String }
+    return try await http.sendJSON(
+      RenderJobResponse.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(renderId)/regen-shot",
+      body: Body(shotId: shotId),
       bearer: token
     )
   }
@@ -516,6 +538,78 @@ public struct VivijureClient: Sendable {
       method: "POST",
       path: "/api/storyboard/renders/\(id)/animate-cloud",
       body: JSONValue.object(obj),
+      bearer: token
+    )
+  }
+
+  public func animateHybrid(
+    id: Int,
+    backends: JSONValue? = nil,
+    defaultBackend: String? = "gpu",
+    defaultCloudModel: String? = nil,
+    audioKey: String? = nil
+  ) async throws -> JSONValue {
+    var obj: [String: JSONValue] = [:]
+    if let backends { obj["backends"] = backends }
+    if let defaultBackend { obj["defaultBackend"] = .string(defaultBackend) }
+    if let defaultCloudModel { obj["defaultCloudModel"] = .string(defaultCloudModel) }
+    if let audioKey { obj["audioKey"] = .string(audioKey) }
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(id)/animate-hybrid",
+      body: JSONValue.object(obj),
+      bearer: token
+    )
+  }
+
+  public func chat(model: String, userInput: String) async throws -> ChatResponse {
+    try await http.sendJSON(
+      ChatResponse.self,
+      method: "POST",
+      path: "/api/chat",
+      body: ChatRequest(model: model, userInput: userInput),
+      bearer: token
+    )
+  }
+
+  public func demoMenu() async throws -> DemoMenuResponse {
+    try await http.sendJSON(
+      DemoMenuResponse.self,
+      method: "GET",
+      path: "/api/demo/menu",
+      bearer: token
+    )
+  }
+
+  public func demoRender(scene: String) async throws -> DemoRenderResponse {
+    struct Body: Encodable { var scene: String }
+    return try await http.sendJSON(
+      DemoRenderResponse.self,
+      method: "POST",
+      path: "/api/demo/render",
+      body: Body(scene: scene),
+      bearer: token
+    )
+  }
+
+  public func pollDemoRender(id: String) async throws -> JSONValue {
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "GET",
+      path: "/api/demo/render/\(enc)",
+      bearer: token
+    )
+  }
+
+  public func demoChat(message: String) async throws -> ChatResponse {
+    struct Body: Encodable { var message: String }
+    return try await http.sendJSON(
+      ChatResponse.self,
+      method: "POST",
+      path: "/api/demo/chat",
+      body: Body(message: message),
       bearer: token
     )
   }

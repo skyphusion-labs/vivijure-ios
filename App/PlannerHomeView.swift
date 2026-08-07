@@ -490,6 +490,14 @@ struct AudioStepView: View {
           }
         }
       }
+      Section("Score prompt") {
+        TextField("Music prompt", text: $app.scorePrompt, axis: .vertical)
+          .lineLimit(3 ... 8)
+        Button("Suggest from storyboard") {
+          Task { await app.suggestScorePrompt(force: true) }
+        }
+        .disabled(app.storyboard == nil || app.busy)
+      }
       Section("Score bed") {
         Button("Generate music (score-bed)") {
           Task { await score() }
@@ -567,9 +575,14 @@ struct AudioStepView: View {
     app.busy = true
     defer { app.busy = false }
     do {
+      let prompt = app.scorePrompt.trimmingCharacters(in: .whitespacesAndNewlines)
       let body = JSONValue.object([
         "storyboard": sb,
-        "prompt": .string("cinematic underscore matching the storyboard mood"),
+        "prompt": .string(
+          prompt.isEmpty
+            ? "cinematic underscore matching the storyboard mood"
+            : prompt
+        ),
       ])
       let resp = try await client.scoreBed(body: body)
       status = resp.prettyJSON()
@@ -619,6 +632,9 @@ struct RenderStepView: View {
         }
         if !app.motionBackends.isEmpty {
           Picker("Motion backend", selection: $app.motionBackend) {
+            if app.motionBackends.count > 1 {
+              Text("(pick required)").tag("")
+            }
             ForEach(app.motionBackends, id: \.self) { m in
               Text(m).tag(m)
             }
@@ -641,6 +657,24 @@ struct RenderStepView: View {
           Text("Audio bed: \(ak)").font(.caption2.monospaced())
         }
       }
+
+      if !app.renderConfigModules.isEmpty {
+        Section("Module render config") {
+          Text("Render-scope knobs from each module's config_schema (install-scope lives in Modules tab).")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+          ForEach(app.renderConfigModules) { mod in
+            if !mod.fields.isEmpty {
+              DisclosureGroup(mod.label) {
+                ForEach(mod.fields) { field in
+                  RenderFieldControl(field: field)
+                }
+              }
+            }
+          }
+        }
+      }
+
       Section("Scatter / gather") {
         Toggle("Use scatter render", isOn: $app.useScatter)
           .disabled(shotCount < 2 || app.castLoras.isEmpty || app.keyframesOnly)
@@ -661,6 +695,95 @@ struct RenderStepView: View {
           Text("Status: \(app.renderStatus)")
         }
       }
+    }
+  }
+}
+
+struct RenderFieldControl: View {
+  @EnvironmentObject private var app: AppState
+  let field: RenderConfigField
+
+  var body: some View {
+    switch field.type {
+    case "bool":
+      Toggle(field.label, isOn: Binding(
+        get: {
+          if case .bool(let b) = app.renderFieldValues[field.id] { return b }
+          if case .bool(let b) = field.defaultValue { return b }
+          return false
+        },
+        set: { app.setRenderField(field, value: .bool($0)) }
+      ))
+    case "enum":
+      Picker(field.label, selection: Binding(
+        get: {
+          app.renderFieldValues[field.id]?.stringValue
+            ?? field.defaultValue?.stringValue
+            ?? ""
+        },
+        set: { v in
+          if v.isEmpty {
+            app.setRenderField(field, value: nil)
+          } else {
+            app.setRenderField(field, value: .string(v))
+          }
+        }
+      )) {
+        Text("default").tag("")
+        ForEach(field.enumValues, id: \.self) { v in
+          Text(field.enumLabels[v] ?? v).tag(v)
+        }
+      }
+    case "int", "float":
+      HStack {
+        Text(field.label)
+        Spacer()
+        TextField(
+          "value",
+          text: Binding(
+            get: {
+              if let d = app.renderFieldValues[field.id]?.doubleValue {
+                return field.type == "int" ? String(Int(d)) : String(d)
+              }
+              if let d = field.defaultValue?.doubleValue {
+                return field.type == "int" ? String(Int(d)) : String(d)
+              }
+              return ""
+            },
+            set: { raw in
+              let t = raw.trimmingCharacters(in: .whitespaces)
+              if t.isEmpty {
+                app.setRenderField(field, value: nil)
+              } else if let d = Double(t) {
+                app.setRenderField(field, value: .number(d))
+              }
+            }
+          )
+        )
+        .keyboardType(.decimalPad)
+        .multilineTextAlignment(.trailing)
+        .frame(maxWidth: 100)
+      }
+      if field.min != nil || field.max != nil {
+        Text("range \(field.min.map { String($0) } ?? "…") – \(field.max.map { String($0) } ?? "…")")
+          .font(.caption2)
+          .foregroundStyle(.secondary)
+      }
+    default:
+      TextField(field.label, text: Binding(
+        get: {
+          app.renderFieldValues[field.id]?.stringValue
+            ?? field.defaultValue?.stringValue
+            ?? ""
+        },
+        set: { v in
+          if v.isEmpty {
+            app.setRenderField(field, value: nil)
+          } else {
+            app.setRenderField(field, value: .string(v))
+          }
+        }
+      ))
     }
   }
 }
@@ -785,6 +908,55 @@ struct HistoryStepView: View {
             }
             .font(.caption)
             .disabled(app.busy)
+
+            if !app.cloudMotionModels.isEmpty || !app.cloudAnimateModel.isEmpty {
+              if !app.cloudMotionModels.isEmpty {
+                Picker("Cloud model", selection: $app.cloudAnimateModel) {
+                  ForEach(app.cloudMotionModels, id: \.self) { m in
+                    Text(m).tag(m)
+                  }
+                }
+                .font(.caption)
+              }
+              Button("Animate cloud i2v") {
+                Task { await app.animateCloudHistory(id: r.id) }
+              }
+              .font(.caption)
+              .disabled(app.busy)
+              Button("Animate hybrid (default GPU)") {
+                Task { await app.animateHybridHistory(id: r.id, defaultBackend: "gpu") }
+              }
+              .font(.caption)
+              .disabled(app.busy)
+            }
+
+            let shots = r.keyframeShotIds
+            if !shots.isEmpty {
+              DisclosureGroup("Keyframes (\(shots.count))") {
+                ForEach(shots, id: \.self) { shot in
+                  HStack {
+                    Text(shot).font(.caption.monospaced())
+                    Spacer()
+                    let locked = r.resolvedLockedShots.contains(shot)
+                    Button(locked ? "Unlock" : "Lock") {
+                      Task {
+                        await app.toggleLockedShot(
+                          renderId: r.id,
+                          shotId: shot,
+                          currently: r.resolvedLockedShots
+                        )
+                      }
+                    }
+                    .font(.caption2)
+                    Button("Regen") {
+                      Task { await app.regenShot(renderId: r.id, shotId: shot) }
+                    }
+                    .font(.caption2)
+                    .disabled(app.busy || r.bundle_key == nil)
+                  }
+                }
+              }
+            }
           }
           .padding(.vertical, 2)
           .swipeActions {
