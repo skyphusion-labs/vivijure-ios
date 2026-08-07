@@ -49,3 +49,5 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        NSPhotoLibraryUsageDescription: "Upload cast portraits, training refs, and source photos to your studio."
+        NSPhotoLibraryAddUsageDescription: "Save studio artifacts when you export media."
