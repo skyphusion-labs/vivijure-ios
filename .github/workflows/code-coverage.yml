@@ -1,0 +1,47 @@
+name: code-coverage
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: coverage-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # `coverage` is a REQUIRED status check in the org `aviation-grade-main-org` ruleset,
+  # matched by STRING against the check-run name, which is this job's `name:`. Shape
+  # ported from prism-ios/.github/workflows/code-coverage.yml, the conformant Swift
+  # sibling in this org.
+  #
+  # STATED RESIDUAL, so it is not mistaken for something it is not: this job runs the
+  # suite under `--enable-code-coverage` and PRINTS a report when `llvm-cov` is
+  # resolvable on the runner. It enforces no coverage floor and uploads no artifact.
+  # It is the same shape the sibling ships.
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10"
+      - name: Test with coverage
+        run: |
+          set -euo pipefail
+          swift test --enable-code-coverage
+          BIN=$(swift build --show-bin-path)
+          if command -v llvm-cov >/dev/null 2>&1; then
+            llvm-cov report \
+              "${BIN}/VivijureKitPackageTests.xctest" \
+              -instr-profile="${BIN}/codecov/default.profdata" \
+              -ignore-filename-regex='.build|Tests' || true
+          else
+            echo "llvm-cov not on PATH; suite ran under --enable-code-coverage, no report rendered"
+          fi
