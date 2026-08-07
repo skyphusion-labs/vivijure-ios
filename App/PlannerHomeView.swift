@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import UniformTypeIdentifiers
 import VivijureKit
@@ -338,13 +339,25 @@ struct CastBundleStepView: View {
                     }
                   }
                   if let m = app.cast.first(where: { $0.id == app.castSlots[idx].boundCastId }) {
-                    Text("refs: \(m.refKeys.count) · portrait: \(m.portrait_key != nil ? "yes" : "no")")
-                      .font(.caption2)
-                      .foregroundStyle(.secondary)
+                    Text(
+                      "refs: \(m.refKeys.count) · portrait: \(m.portrait_key != nil ? "yes" : "no") · LoRA: \(m.lora_status ?? "?")"
+                    )
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
                   }
                 }
               }
             }
+          }
+        }
+        Section("Scene start keyframes (optional)") {
+          Text("Upload a start frame per scene; shipped as sceneStartImages on bundle (web Phase 4b).")
+            .font(.footnote)
+            .foregroundStyle(.secondary)
+          let scenes = app.storyboard?.objectValue?["scenes"]?.arrayValue ?? []
+          ForEach(Array(scenes.enumerated()), id: \.offset) { idx, scene in
+            let sid = StoryboardMutator.sceneId(at: idx, scene: scene)
+            SceneStartRow(sceneId: sid, stagedKey: app.sceneStartImages[sid])
           }
         }
         Section("Preflight") {
@@ -393,6 +406,64 @@ struct CastBundleStepView: View {
   private func castLabel(_ m: CastMember) -> String {
     let portrait = m.portrait_key != nil ? "portrait" : "no portrait"
     return "\(m.name) (\(portrait), \(m.refKeys.count) refs)"
+  }
+}
+
+struct SceneStartRow: View {
+  @EnvironmentObject private var app: AppState
+  let sceneId: String
+  let stagedKey: String?
+  @State private var photoItem: PhotosPickerItem?
+
+  var body: some View {
+    HStack {
+      VStack(alignment: .leading) {
+        Text(sceneId).font(.subheadline.weight(.semibold))
+        if let key = stagedKey {
+          Text(key).font(.caption2.monospaced()).lineLimit(1)
+        } else {
+          Text("no start image").font(.caption2).foregroundStyle(.secondary)
+        }
+      }
+      Spacer()
+      if stagedKey != nil {
+        Button("Clear") { app.clearSceneStart(sceneId: sceneId) }
+          .font(.caption)
+      }
+      PhotosPicker(selection: $photoItem, matching: .images) {
+        Image(systemName: "photo.badge.plus")
+      }
+      .onChange(of: photoItem) { item in
+        guard let item else { return }
+        Task {
+          do {
+            guard let data = try await item.loadTransferable(type: Data.self) else { return }
+            let mime = ImageMime.sniff(data) ?? "image/jpeg"
+            await app.stageSceneStart(sceneId: sceneId, data: data, mime: mime)
+            photoItem = nil
+          } catch {
+            app.lastError = error.localizedDescription
+          }
+        }
+      }
+    }
+  }
+}
+
+enum ImageMime {
+  static func sniff(_ data: Data) -> String? {
+    if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
+    if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
+    if data.count >= 12 {
+      let riff = data.prefix(4)
+      let webp = data.subdata(in: 8 ..< 12)
+      if riff.elementsEqual([0x52, 0x49, 0x46, 0x46]),
+         webp.elementsEqual([0x57, 0x45, 0x42, 0x50])
+      {
+        return "image/webp"
+      }
+    }
+    return nil
   }
 }
 
@@ -534,6 +605,10 @@ struct AudioStepView: View {
 struct RenderStepView: View {
   @EnvironmentObject private var app: AppState
 
+  private var shotCount: Int {
+    app.storyboard.flatMap { StoryboardMutator.sceneIds(from: $0).count } ?? 0
+  }
+
   var body: some View {
     Form {
       Section("Options") {
@@ -542,6 +617,19 @@ struct RenderStepView: View {
             Text(t).tag(t)
           }
         }
+        if !app.motionBackends.isEmpty {
+          Picker("Motion backend", selection: $app.motionBackend) {
+            ForEach(app.motionBackends, id: \.self) { m in
+              Text(m).tag(m)
+            }
+          }
+          .disabled(app.keyframesOnly)
+        } else {
+          TextField("Motion backend id", text: $app.motionBackend)
+            .disabled(app.keyframesOnly)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+        }
         Toggle("Keyframes only", isOn: $app.keyframesOnly)
         if let key = app.bundleKey {
           Text("Bundle: \(key)").font(.caption2.monospaced())
@@ -549,12 +637,25 @@ struct RenderStepView: View {
           Text("No bundle yet; submit may still work if the host accepts storyboard-only.")
             .font(.footnote)
         }
+        if let ak = app.audioKey {
+          Text("Audio bed: \(ak)").font(.caption2.monospaced())
+        }
+      }
+      Section("Scatter / gather") {
+        Toggle("Use scatter render", isOn: $app.useScatter)
+          .disabled(shotCount < 2 || app.castLoras.isEmpty || app.keyframesOnly)
+        if app.useScatter {
+          Stepper("Shards: \(app.scatterShards)", value: $app.scatterShards, in: 2 ... max(2, shotCount))
+          Text("Needs >= 2 shots, a bundle, motion backend, and at least one bound cast.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
       }
       Section {
-        Button("Submit render") {
+        Button(app.useScatter ? "Submit scatter render" : "Submit render") {
           Task { await app.runRender() }
         }
-        .disabled(app.storyboard == nil || app.busy)
+        .disabled(app.storyboard == nil || app.busy || (app.useScatter && app.bundleKey == nil))
         if let jid = app.renderJobId {
           Text("Job: \(jid)")
           Text("Status: \(app.renderStatus)")
@@ -569,6 +670,8 @@ struct RenderStepView: View {
 struct HistoryStepView: View {
   @EnvironmentObject private var app: AppState
   @State private var labelDrafts: [Int: String] = [:]
+  @State private var tagDrafts: [Int: String] = [:]
+  @State private var narrationDrafts: [Int: String] = [:]
   @Environment(\.openURL) private var openURL
 
   var body: some View {
@@ -577,6 +680,11 @@ struct HistoryStepView: View {
         Button("Refresh") {
           Task { await app.refreshHistory() }
         }
+        if !app.renderTags.isEmpty {
+          Text("Known tags: \(app.renderTags.joined(separator: ", "))")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
       }
       Section("Renders") {
         if app.renders.isEmpty {
@@ -584,10 +692,23 @@ struct HistoryStepView: View {
         }
         ForEach(app.renders) { r in
           VStack(alignment: .leading, spacing: 6) {
-            Text(r.label ?? r.job_id ?? "#\(r.id)").font(.headline)
-            Text("\(r.status ?? "?") · \(r.quality_tier ?? "")")
+            HStack {
+              Text(r.label ?? r.job_id ?? "#\(r.id)").font(.headline)
+              if r.isScatterParent {
+                Text("scatter")
+                  .font(.caption2)
+                  .padding(.horizontal, 6)
+                  .padding(.vertical, 2)
+                  .background(Color.orange.opacity(0.2))
+                  .clipShape(Capsule())
+              }
+            }
+            Text("\(r.status ?? "?") · \(r.quality_tier ?? "") · \(r.mode ?? "")")
               .font(.caption)
               .foregroundStyle(.secondary)
+            if let tags = r.tags, !tags.isEmpty {
+              Text(tags.joined(separator: ", ")).font(.caption2)
+            }
             if let err = r.error, !err.isEmpty {
               Text(err).font(.caption2).foregroundStyle(.red)
             }
@@ -600,6 +721,12 @@ struct HistoryStepView: View {
                   }
                 }
               }
+            }
+            if r.bundle_key != nil {
+              Button("Load into planner (re-render)") {
+                app.loadRenderIntoPlanner(r)
+              }
+              .font(.caption)
             }
             HStack {
               TextField(
@@ -615,6 +742,49 @@ struct HistoryStepView: View {
               }
             }
             .font(.caption)
+            HStack {
+              TextField(
+                "Tags (comma)",
+                text: Binding(
+                  get: {
+                    tagDrafts[r.id] ?? (r.tags ?? []).joined(separator: ", ")
+                  },
+                  set: { tagDrafts[r.id] = $0 }
+                )
+              )
+              Button("Tags") {
+                let raw = tagDrafts[r.id] ?? ""
+                let tags = raw.split(separator: ",")
+                  .map { $0.trimmingCharacters(in: .whitespaces) }
+                  .filter { !$0.isEmpty }
+                Task { await app.patchRenderTags(id: r.id, tags: tags) }
+              }
+            }
+            .font(.caption)
+            Button("Add audio bed") {
+              Task { await app.addAudioToHistory(id: r.id) }
+            }
+            .font(.caption)
+            .disabled(app.audioKey == nil || app.busy)
+            HStack {
+              TextField(
+                "Narration text",
+                text: Binding(
+                  get: { narrationDrafts[r.id] ?? "" },
+                  set: { narrationDrafts[r.id] = $0 }
+                )
+              )
+              Button("Narrate") {
+                let t = narrationDrafts[r.id] ?? ""
+                Task { await app.addNarrationToHistory(id: r.id, text: t) }
+              }
+            }
+            .font(.caption)
+            Button("Finalize (GPU i2v)") {
+              Task { await app.finalizeHistory(id: r.id) }
+            }
+            .font(.caption)
+            .disabled(app.busy)
           }
           .padding(.vertical, 2)
           .swipeActions {

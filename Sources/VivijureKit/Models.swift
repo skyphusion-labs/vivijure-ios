@@ -281,10 +281,15 @@ public struct StoryboardRenderRequest: Codable, Sendable {
   public var qualityTier: String?
   public var project: String?
   public var project_id: Int?
+  public var projectId: Int?
+  /// Web panel sends camelCase `castLoras` (primary).
+  public var castLoras: [String: String]?
   public var cast_loras: [String: String]?
+  public var keyframesOnly: Bool?
   public var keyframes_only: Bool?
   public var motion_backend: String?
   public var keyframe_backend: String?
+  public var audioKey: String?
 
   public init(
     storyboard: JSONValue? = nil,
@@ -295,7 +300,8 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     castLoras: [String: String]? = nil,
     keyframesOnly: Bool? = nil,
     motionBackend: String? = nil,
-    keyframeBackend: String? = nil
+    keyframeBackend: String? = nil,
+    audioKey: String? = nil
   ) {
     self.storyboard = storyboard
     self.bundle_key = bundleKey
@@ -304,10 +310,14 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     self.qualityTier = qualityTier
     self.project = project
     self.project_id = projectId
+    self.projectId = projectId
+    self.castLoras = castLoras
     self.cast_loras = castLoras
+    self.keyframesOnly = keyframesOnly
     self.keyframes_only = keyframesOnly
     self.motion_backend = motionBackend
     self.keyframe_backend = keyframeBackend
+    self.audioKey = audioKey
   }
 }
 
@@ -340,6 +350,83 @@ public struct RenderRow: Codable, Sendable, Identifiable, Equatable {
   public var mode: String?
   public var tags: [String]?
   public var project_id: Int?
+  public var parent_id: JSONValue?
+  public var render_overrides: JSONValue?
+  public var storyboard: JSONValue?
+
+  public var isScatterParent: Bool {
+    (job_id ?? "").hasPrefix("scatter-")
+  }
+}
+
+public struct ScatterRenderRequest: Codable, Sendable {
+  public var bundleKey: String
+  public var shotIds: [String]
+  public var shardCount: Int?
+  public var qualityTier: String?
+  public var castLoras: [String: String]?
+  public var audioKey: String?
+  public var projectId: Int?
+  public var motion_backend: String?
+  public var renderOverrides: JSONValue?
+
+  public init(
+    bundleKey: String,
+    shotIds: [String],
+    shardCount: Int? = nil,
+    qualityTier: String? = nil,
+    castLoras: [String: String]? = nil,
+    audioKey: String? = nil,
+    projectId: Int? = nil,
+    motionBackend: String? = nil,
+    renderOverrides: JSONValue? = nil
+  ) {
+    self.bundleKey = bundleKey
+    self.shotIds = shotIds
+    self.shardCount = shardCount
+    self.qualityTier = qualityTier
+    self.castLoras = castLoras
+    self.audioKey = audioKey
+    self.projectId = projectId
+    self.motion_backend = motionBackend
+    self.renderOverrides = renderOverrides
+  }
+}
+
+public struct PrefsResponse: Codable, Sendable {
+  public var ok: Bool?
+  public var prefs: JSONValue?
+}
+
+public struct ModuleConfigResponse: Codable, Sendable {
+  public var ok: Bool?
+  public var module: String?
+  public var config: JSONValue?
+  public var error: String?
+}
+
+public struct InstalledModulesResponse: Codable, Sendable {
+  public var ok: Bool?
+  public var modules: [JSONValue]?
+}
+
+public struct StorageUsageResponse: Codable, Sendable {
+  public var used_bytes: Int?
+  public var objects: Int?
+  public var quota_bytes: Int?
+  public var over: Bool?
+}
+
+public struct NarrationRequest: Codable, Sendable {
+  public var text: String
+  public var module: String?
+  public var config: JSONValue?
+
+  public init(text: String, module: String? = nil, config: JSONValue? = nil) {
+    self.text = text
+    self.module = module
+    self.config = config
+  }
 }
 
 public struct RendersListResponse: Codable, Sendable {

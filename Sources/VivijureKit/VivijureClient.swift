@@ -278,6 +278,39 @@ public struct VivijureClient: Sendable {
     )
   }
 
+  public func pollRefsJob(castId: String, jobId: String) async throws -> JSONValue {
+    let c = castId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? castId
+    let j = jobId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? jobId
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "GET",
+      path: "/api/cast/\(c)/refs-job/\(j)",
+      bearer: token
+    )
+  }
+
+  /// Export `.vvcast` tar bytes.
+  public func exportCast(id: String) async throws -> Data {
+    let enc = id.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? id
+    return try await http.sendBytes(
+      method: "GET",
+      path: "/api/cast/export/\(enc)",
+      bearer: token
+    )
+  }
+
+  /// Import raw `.vvcast` tar body.
+  public func importCast(tarData: Data) async throws -> CastMember {
+    let raw = try await http.sendBytes(
+      method: "POST",
+      path: "/api/cast/import",
+      body: tarData,
+      contentType: "application/x-tar",
+      bearer: token
+    )
+    return try JSONDecoder().decode(CastItemResponse.self, from: raw).cast
+  }
+
   public enum CastMediaKind: String, Sendable {
     case portrait
     case ref
@@ -447,6 +480,171 @@ public struct VivijureClient: Sendable {
       body: Body(audioKey: audioKey),
       bearer: token
     )
+  }
+
+  public func addNarrationToRender(id: Int, text: String, module: String? = nil) async throws -> JSONValue {
+    try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(id)/add-narration",
+      body: NarrationRequest(text: text, module: module),
+      bearer: token
+    )
+  }
+
+  public func finalizeRender(id: Int, audioKey: String? = nil, castLoras: [String: String]? = nil) async throws -> JSONValue {
+    var obj: [String: JSONValue] = [:]
+    if let audioKey { obj["audioKey"] = .string(audioKey) }
+    if let castLoras {
+      obj["castLoras"] = .object(castLoras.mapValues { .string($0) })
+    }
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(id)/finalize",
+      body: JSONValue.object(obj),
+      bearer: token
+    )
+  }
+
+  public func animateCloud(id: Int, model: String? = nil, audioKey: String? = nil) async throws -> JSONValue {
+    var obj: [String: JSONValue] = [:]
+    if let model { obj["model"] = .string(model) }
+    if let audioKey { obj["audioKey"] = .string(audioKey) }
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storyboard/renders/\(id)/animate-cloud",
+      body: JSONValue.object(obj),
+      bearer: token
+    )
+  }
+
+  public func submitScatterRender(_ body: ScatterRenderRequest) async throws -> RenderJobResponse {
+    try await http.sendJSON(
+      RenderJobResponse.self,
+      method: "POST",
+      path: "/api/storyboard/render/scatter",
+      body: body,
+      bearer: token
+    )
+  }
+
+  public func getPrefs() async throws -> JSONValue {
+    let r: PrefsResponse = try await http.sendJSON(
+      PrefsResponse.self,
+      method: "GET",
+      path: "/api/prefs",
+      bearer: token
+    )
+    return r.prefs ?? .object([:])
+  }
+
+  public func patchPrefs(_ prefs: JSONValue) async throws -> JSONValue {
+    let r: PrefsResponse = try await http.sendJSON(
+      PrefsResponse.self,
+      method: "PATCH",
+      path: "/api/prefs",
+      body: prefs,
+      bearer: token
+    )
+    return r.prefs ?? .object([:])
+  }
+
+  public func listInstalledModules() async throws -> [JSONValue] {
+    let r: InstalledModulesResponse = try await http.sendJSON(
+      InstalledModulesResponse.self,
+      method: "GET",
+      path: "/api/modules/installed",
+      bearer: token
+    )
+    return r.modules ?? []
+  }
+
+  public func installModule(scriptName: String) async throws -> JSONValue {
+    struct Body: Encodable { var script_name: String }
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/modules/install",
+      body: Body(script_name: scriptName),
+      bearer: token
+    )
+  }
+
+  public func uninstallModule(name: String) async throws {
+    let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+    struct Ok: Decodable { var ok: Bool? }
+    _ = try await http.sendJSON(
+      Ok.self,
+      method: "DELETE",
+      path: "/api/modules/install/\(enc)",
+      bearer: token
+    )
+  }
+
+  public func setModuleEnabled(name: String, enabled: Bool) async throws -> JSONValue {
+    struct Body: Encodable { var enabled: Bool }
+    let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+    return try await http.sendJSON(
+      JSONValue.self,
+      method: "PATCH",
+      path: "/api/modules/install/\(enc)",
+      body: Body(enabled: enabled),
+      bearer: token
+    )
+  }
+
+  public func getModuleConfig(name: String) async throws -> ModuleConfigResponse {
+    let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+    return try await http.sendJSON(
+      ModuleConfigResponse.self,
+      method: "GET",
+      path: "/api/modules/\(enc)/config",
+      bearer: token
+    )
+  }
+
+  public func patchModuleConfig(name: String, config: JSONValue) async throws -> ModuleConfigResponse {
+    let enc = name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? name
+    return try await http.sendJSON(
+      ModuleConfigResponse.self,
+      method: "PATCH",
+      path: "/api/modules/\(enc)/config",
+      body: config,
+      bearer: token
+    )
+  }
+
+  public func storageUsage() async throws -> StorageUsageResponse {
+    try await http.sendJSON(
+      StorageUsageResponse.self,
+      method: "GET",
+      path: "/api/storage/usage",
+      bearer: token
+    )
+  }
+
+  public func storageReconcile() async throws -> JSONValue {
+    try await http.sendJSON(
+      JSONValue.self,
+      method: "POST",
+      path: "/api/storage/reconcile",
+      body: JSONValue.object([:]),
+      bearer: token
+    )
+  }
+
+  /// Stage an image under `character-refs/` (bundle scene starts / slot refs).
+  public func uploadCharacterRef(data: Data, mime: String) async throws -> UploadResponse {
+    let raw = try await http.sendRaw(
+      method: "POST",
+      path: "/api/storyboard/character-ref",
+      body: data,
+      contentType: mime,
+      bearer: token
+    )
+    return try JSONDecoder().decode(UploadResponse.self, from: raw)
   }
 
   public func uploadImage(data: Data, mime: String) async throws -> UploadResponse {

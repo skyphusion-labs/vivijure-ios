@@ -1,7 +1,10 @@
 import SwiftUI
+import VivijureKit
 
 struct SettingsView: View {
   @EnvironmentObject private var app: AppState
+  @State private var prefsJSON = ""
+  @State private var prefsStatus = ""
 
   var body: some View {
     NavigationStack {
@@ -19,6 +22,58 @@ struct SettingsView: View {
             app.signOut()
           }
         }
+
+        Section("Notifications") {
+          Toggle(
+            "Notify when render finishes",
+            isOn: Binding(
+              get: { app.notificationsEnabled },
+              set: { on in Task { await app.setNotificationsEnabled(on) } }
+            )
+          )
+          Text("Uses local UserNotifications when the app is backgrounded during poll.")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+
+        Section("Studio prefs (GET/PATCH /api/prefs)") {
+          if prefsJSON.isEmpty {
+            Button("Load prefs") {
+              Task { await loadPrefs() }
+            }
+          } else {
+            TextEditor(text: $prefsJSON)
+              .font(.system(.caption, design: .monospaced))
+              .frame(minHeight: 100)
+            Button("Save prefs") {
+              Task { await savePrefs() }
+            }
+          }
+          if !prefsStatus.isEmpty {
+            Text(prefsStatus).font(.caption2)
+          }
+        }
+
+        Section("Storage") {
+          Button("Refresh usage") {
+            Task { await app.refreshStorage() }
+          }
+          if let u = app.storageUsage {
+            LabeledContent("Used bytes", value: "\(u.used_bytes ?? 0)")
+            LabeledContent("Objects", value: "\(u.objects ?? 0)")
+            if let q = u.quota_bytes {
+              LabeledContent("Quota", value: "\(q)")
+            }
+            if u.over == true {
+              Text("Over quota").foregroundStyle(.red)
+            }
+          }
+          Button("Reconcile ledger") {
+            Task { await app.reconcileStorage() }
+          }
+          .disabled(app.busy)
+        }
+
         if let err = app.lastError {
           Section("Last error") {
             Text(err).font(.caption).foregroundStyle(.red)
@@ -33,6 +88,34 @@ struct SettingsView: View {
         }
       }
       .navigationTitle("Settings")
+      .task {
+        if let p = app.prefs {
+          prefsJSON = p.prettyJSON()
+        }
+      }
     }
+  }
+
+  private func loadPrefs() async {
+    guard let client = app.client else { return }
+    do {
+      let p = try await client.getPrefs()
+      app.prefs = p
+      prefsJSON = p.prettyJSON()
+      prefsStatus = "Loaded"
+    } catch {
+      prefsStatus = error.localizedDescription
+    }
+  }
+
+  private func savePrefs() async {
+    guard let data = prefsJSON.data(using: .utf8),
+          let any = try? JSONSerialization.jsonObject(with: data)
+    else {
+      prefsStatus = "Invalid JSON"
+      return
+    }
+    await app.savePrefs(JSONValue.from(any))
+    prefsStatus = "Saved"
   }
 }
