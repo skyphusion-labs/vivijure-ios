@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UserNotifications
 import VivijureKit
 
 /// One plan-stage cast slot (web A–D).
@@ -38,19 +39,30 @@ final class AppState: ObservableObject {
   @Published var renderStatus: String = ""
   @Published var cast: [CastMember] = []
   @Published var renders: [RenderRow] = []
+  @Published var renderTags: [String] = []
   @Published var plannerStep: PlannerStep = .plan
   @Published var qualityTier: String = "final"
   @Published var keyframesOnly: Bool = false
+  @Published var useScatter: Bool = false
+  @Published var scatterShards: Int = 2
+  @Published var motionBackend: String = ""
   @Published var audioKey: String?
   @Published var bpm: Double = 120
   @Published var beatsPerShot: Double = 4
   @Published var refineInstruction: String = ""
   @Published var castSlots: [PlanCastSlot] = plannerSlotIDs.map { PlanCastSlot(letter: $0) }
+  /// sceneId -> staged character-ref key for start keyframes.
+  @Published var sceneStartImages: [String: String] = [:]
+  @Published var prefs: JSONValue?
+  @Published var installedModules: [JSONValue] = []
+  @Published var storageUsage: StorageUsageResponse?
+  @Published var notificationsEnabled: Bool = false
   @Published var busy: Bool = false
 
   private let urlKey = "studio_url"
   private let tokenKey = "studio_token"
   private let sessionKey = "planner_session_v1"
+  private let notifyKey = "notify_on_render"
 
   enum PlannerStep: String, CaseIterable, Identifiable {
     case plan = "Plan"
@@ -67,7 +79,16 @@ final class AppState: ObservableObject {
       ?? ""
     token = KeychainStore.get(account: tokenKey) ?? ""
     isConfigured = !studioURLString.isEmpty && !token.isEmpty
+    notificationsEnabled = UserDefaults.standard.bool(forKey: notifyKey)
     restoreSession()
+  }
+
+  var motionBackends: [String] {
+    StoryboardMutator.motionBackends(from: modules)
+  }
+
+  var castLoras: [String: String] {
+    castBindings
   }
 
   var client: VivijureClient? {
@@ -118,6 +139,8 @@ final class AppState: ObservableObject {
     renderStatus = ""
     audioKey = nil
     refineInstruction = ""
+    sceneStartImages = [:]
+    useScatter = false
     plannerStep = .plan
     selectedProjectId = nil
     castSlots = plannerSlotIDs.map { PlanCastSlot(letter: $0) }
@@ -143,6 +166,12 @@ final class AppState: ObservableObject {
       cast = try await c
       await loadModels(client: client)
       qualityTier = modules?.defaultQualityTier ?? "final"
+      if motionBackend.isEmpty, let first = motionBackends.first {
+        motionBackend = first
+      }
+      if let p = try? await client.getPrefs() {
+        prefs = p
+      }
       statusMessage = "Connected as \(whoami?.user ?? whoami?.email ?? "studio")"
     } catch {
       lastError = error.localizedDescription
@@ -188,9 +217,48 @@ final class AppState: ObservableObject {
 
   func refreshHistory() async {
     guard let client else { return }
-    do { renders = try await client.listRenders(projectId: selectedProjectId) } catch {
+    do {
+      async let list = client.listRenders(projectId: selectedProjectId)
+      async let tags = client.listRenderTags()
+      renders = try await list
+      renderTags = (try? await tags) ?? renderTags
+    } catch {
       lastError = error.localizedDescription
     }
+  }
+
+  func requestNotificationPermission() async {
+    let center = UNUserNotificationCenter.current()
+    do {
+      let ok = try await center.requestAuthorization(options: [.alert, .sound, .badge])
+      notificationsEnabled = ok
+      UserDefaults.standard.set(ok, forKey: notifyKey)
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func setNotificationsEnabled(_ on: Bool) async {
+    if on {
+      await requestNotificationPermission()
+    } else {
+      notificationsEnabled = false
+      UserDefaults.standard.set(false, forKey: notifyKey)
+    }
+  }
+
+  private func notifyRenderFinished(jobId: String, status: String) {
+    guard notificationsEnabled else { return }
+    let content = UNMutableNotificationContent()
+    content.title = "Vivijure render"
+    content.body = "\(jobId): \(status)"
+    content.sound = .default
+    let req = UNNotificationRequest(
+      identifier: "render-\(jobId)-\(UUID().uuidString)",
+      content: content,
+      trigger: nil
+    )
+    UNUserNotificationCenter.current().add(req)
   }
 
   func selectProject(_ id: Int?) async {
@@ -439,7 +507,19 @@ final class AppState: ObservableObject {
           }
         }
       }
-      let resp = try await client.bundle(storyboard: storyboard, characterRefs: refs)
+      var starts: JSONValue?
+      if !sceneStartImages.isEmpty {
+        var map: [String: JSONValue] = [:]
+        for (sid, key) in sceneStartImages {
+          map[sid] = .object(["key": .string(key)])
+        }
+        starts = .object(map)
+      }
+      let resp = try await client.bundle(
+        storyboard: storyboard,
+        characterRefs: refs,
+        sceneStartImages: starts
+      )
       guard let key = resp.key else {
         lastError = resp.error ?? "Bundle returned no key"
         return
@@ -447,10 +527,30 @@ final class AppState: ObservableObject {
       bundleKey = key
       plannerStep = .render
       statusMessage = "Bundled: \(key)"
+        + (sceneStartImages.isEmpty ? "" : " (\(sceneStartImages.count) scene starts)")
       persistSession()
     } catch {
       lastError = error.localizedDescription
     }
+  }
+
+  func stageSceneStart(sceneId: String, data: Data, mime: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let up = try await client.uploadCharacterRef(data: data, mime: mime)
+      sceneStartImages[sceneId] = up.key
+      statusMessage = "Staged start keyframe for \(sceneId)"
+      persistSession()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func clearSceneStart(sceneId: String) {
+    sceneStartImages.removeValue(forKey: sceneId)
+    persistSession()
   }
 
   func runRender() async {
@@ -459,13 +559,19 @@ final class AppState: ObservableObject {
     lastError = nil
     defer { busy = false }
     do {
+      if useScatter {
+        await runScatterRender(client: client, storyboard: storyboard)
+        return
+      }
       let body = StoryboardRenderRequest(
         storyboard: storyboard,
         bundleKey: bundleKey,
         qualityTier: qualityTier,
         projectId: selectedProjectId,
-        castLoras: nil,
-        keyframesOnly: keyframesOnly ? true : nil
+        castLoras: castLoras.isEmpty ? nil : castLoras,
+        keyframesOnly: keyframesOnly ? true : nil,
+        motionBackend: keyframesOnly ? nil : (motionBackend.isEmpty ? nil : motionBackend),
+        audioKey: audioKey
       )
       let job = try await client.submitStoryboardRender(body)
       guard let jid = job.resolvedJobId else {
@@ -476,6 +582,57 @@ final class AppState: ObservableObject {
       renderStatus = job.status ?? job.phase ?? "submitted"
       plannerStep = .history
       statusMessage = "Render \(jid)"
+      persistSession()
+      await pollRenderLoop()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  private func runScatterRender(client: VivijureClient, storyboard: JSONValue) async {
+    guard let bundleKey else {
+      lastError = "Scatter needs a bundleKey; run bundle first"
+      return
+    }
+    let shotIds = StoryboardMutator.sceneIds(from: storyboard)
+    guard shotIds.count >= 2 else {
+      lastError = "Scatter requires >= 2 shots"
+      return
+    }
+    if castLoras.isEmpty {
+      lastError = "Scatter requires at least one bound cast (castLoras)"
+      return
+    }
+    if motionBackend.isEmpty {
+      lastError = "Scatter requires a motion.backend selection"
+      return
+    }
+    if let pid = selectedProjectId {
+      _ = try? await client.saveStoryboard(projectId: pid, storyboard: storyboard)
+    }
+    var shards = scatterShards
+    if shards < 2 { shards = 2 }
+    if shards > shotIds.count { shards = shotIds.count }
+    do {
+      let body = ScatterRenderRequest(
+        bundleKey: bundleKey,
+        shotIds: shotIds,
+        shardCount: shards,
+        qualityTier: qualityTier,
+        castLoras: castLoras,
+        audioKey: audioKey,
+        projectId: selectedProjectId,
+        motionBackend: motionBackend
+      )
+      let job = try await client.submitScatterRender(body)
+      guard let jid = job.resolvedJobId else {
+        lastError = job.error ?? "No scatter job id"
+        return
+      }
+      renderJobId = jid
+      renderStatus = job.status ?? job.phase ?? "submitted"
+      plannerStep = .history
+      statusMessage = "Scatter \(jid) (\(shards) shards)"
       persistSession()
       await pollRenderLoop()
     } catch {
@@ -494,6 +651,7 @@ final class AppState: ObservableObject {
         }
         if done {
           statusMessage = "Render \(renderStatus)"
+          notifyRenderFinished(jobId: jid, status: renderStatus)
           await refreshHistory()
           persistSession()
           return
@@ -504,6 +662,25 @@ final class AppState: ObservableObject {
       }
       try? await Task.sleep(nanoseconds: 8_000_000_000)
     }
+  }
+
+  /// Web "rerun bundle": load bundle + tier + optional storyboard from a history row.
+  func loadRenderIntoPlanner(_ row: RenderRow) {
+    if let key = row.bundle_key {
+      bundleKey = key
+    }
+    if let tier = row.quality_tier, !tier.isEmpty {
+      qualityTier = tier
+    }
+    if let pid = row.project_id {
+      selectedProjectId = pid
+    }
+    if let sb = row.storyboard {
+      applyStoryboard(sb, resetOriginal: true)
+    }
+    plannerStep = .render
+    statusMessage = "Loaded bundle \(row.bundle_key ?? "?") from history"
+    persistSession()
   }
 
   func snapScenesToBPM() {
@@ -650,6 +827,223 @@ final class AppState: ObservableObject {
     }
   }
 
+  func patchRenderTags(id: Int, tags: [String]) async {
+    guard let client else { return }
+    do {
+      _ = try await client.patchRender(id: id, tags: tags)
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func addAudioToHistory(id: Int) async {
+    guard let client, let audioKey else {
+      lastError = "Stage an audio bed first (Audio step)"
+      return
+    }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.addAudioToRender(id: id, audioKey: audioKey)
+      statusMessage = "Audio muxed onto render #\(id)"
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func addNarrationToHistory(id: Int, text: String) async {
+    guard let client else { return }
+    let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !t.isEmpty else {
+      lastError = "Narration text required"
+      return
+    }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.addNarrationToRender(id: id, text: t)
+      statusMessage = "Narration added to #\(id)"
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func finalizeHistory(id: Int) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.finalizeRender(
+        id: id,
+        audioKey: audioKey,
+        castLoras: castLoras.isEmpty ? nil : castLoras
+      )
+      statusMessage = "Finalize submitted for #\(id)"
+      await refreshHistory()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func generateCastRefs(id: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let start = try await client.generateRefs(castId: id)
+      guard case .object(let o) = start,
+            let jid = o["job_id"]?.stringValue ?? o["jobId"]?.stringValue
+      else {
+        statusMessage = "generate-refs: \(start.prettyJSON().prefix(120))"
+        await refreshCast()
+        return
+      }
+      statusMessage = "refs job \(jid)"
+      for _ in 0 ..< 60 {
+        let job = try await client.pollRefsJob(castId: id, jobId: jid)
+        if case .object(let jo) = job {
+          let phase = jo["phase"]?.stringValue ?? ""
+          statusMessage = "refs \(jid): \(phase)"
+          if ["done", "failed"].contains(phase) { break }
+        }
+        try? await Task.sleep(nanoseconds: 3_000_000_000)
+      }
+      await refreshCast()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func exportCastData(id: String) async -> Data? {
+    guard let client else { return nil }
+    busy = true
+    defer { busy = false }
+    do {
+      return try await client.exportCast(id: id)
+    } catch {
+      lastError = error.localizedDescription
+      return nil
+    }
+  }
+
+  func importCastTar(_ data: Data) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      let m = try await client.importCast(tarData: data)
+      statusMessage = "Imported cast \(m.name)"
+      await refreshCast()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func refreshInstalledModules() async {
+    guard let client else { return }
+    do {
+      installedModules = try await client.listInstalledModules()
+    } catch {
+      // Hosts without MODULE_DISPATCH return 400; surface quietly.
+      lastError = error.localizedDescription
+    }
+  }
+
+  func installModule(scriptName: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.installModule(scriptName: scriptName)
+      await refreshInstalledModules()
+      await bootstrap()
+      statusMessage = "Installed \(scriptName)"
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func uninstallModule(name: String) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      try await client.uninstallModule(name: name)
+      await refreshInstalledModules()
+      await bootstrap()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func setModuleEnabled(name: String, enabled: Bool) async {
+    guard let client else { return }
+    do {
+      _ = try await client.setModuleEnabled(name: name, enabled: enabled)
+      await refreshInstalledModules()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func loadModuleConfig(name: String) async -> JSONValue? {
+    guard let client else { return nil }
+    do {
+      let r = try await client.getModuleConfig(name: name)
+      return r.config
+    } catch {
+      lastError = error.localizedDescription
+      return nil
+    }
+  }
+
+  func saveModuleConfig(name: String, config: JSONValue) async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.patchModuleConfig(name: name, config: config)
+      statusMessage = "Saved config for \(name)"
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func savePrefs(_ next: JSONValue) async {
+    guard let client else { return }
+    do {
+      prefs = try await client.patchPrefs(next)
+      statusMessage = "Prefs saved"
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func refreshStorage() async {
+    guard let client else { return }
+    do {
+      storageUsage = try await client.storageUsage()
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
+  func reconcileStorage() async {
+    guard let client else { return }
+    busy = true
+    defer { busy = false }
+    do {
+      _ = try await client.storageReconcile()
+      await refreshStorage()
+      statusMessage = "Storage reconcile submitted"
+    } catch {
+      lastError = error.localizedDescription
+    }
+  }
+
   func openArtifact(key: String) async -> URL? {
     guard let client else { return nil }
     do {
@@ -677,6 +1071,9 @@ final class AppState: ObservableObject {
     var plannerStep: String?
     var bpm: Double?
     var slots: [SlotBlob]?
+    var sceneStartImages: [String: String]?
+    var motionBackend: String?
+    var keyframesOnly: Bool?
   }
 
   private struct SlotBlob: Codable {
@@ -709,7 +1106,10 @@ final class AppState: ObservableObject {
       renderJobId: renderJobId,
       plannerStep: plannerStep.rawValue,
       bpm: bpm,
-      slots: slots
+      slots: slots,
+      sceneStartImages: sceneStartImages,
+      motionBackend: motionBackend,
+      keyframesOnly: keyframesOnly
     )
     if let data = try? JSONEncoder().encode(blob) {
       UserDefaults.standard.set(data, forKey: sessionKey)
@@ -736,6 +1136,9 @@ final class AppState: ObservableObject {
       plannerStep = s
     }
     bpm = blob.bpm ?? 120
+    sceneStartImages = blob.sceneStartImages ?? [:]
+    motionBackend = blob.motionBackend ?? ""
+    keyframesOnly = blob.keyframesOnly ?? false
     if let slots = blob.slots {
       castSlots = plannerSlotIDs.map { letter in
         if let s = slots.first(where: { $0.letter == letter }) {

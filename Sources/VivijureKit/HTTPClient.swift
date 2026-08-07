@@ -123,12 +123,25 @@ public final class HTTPClient: @unchecked Sendable {
     contentType: String,
     bearer: String?
   ) async throws -> Data {
+    try await sendBytes(method: method, path: path, body: body, contentType: contentType, bearer: bearer)
+  }
+
+  /// Raw bytes request (GET export, POST import, image uploads).
+  public func sendBytes(
+    method: String,
+    path: String,
+    body: Data? = nil,
+    contentType: String? = nil,
+    bearer: String?,
+    query: [URLQueryItem] = []
+  ) async throws -> Data {
     let req = try request(
       method: method,
       path: path,
       body: body,
       contentType: contentType,
-      bearer: bearer
+      bearer: bearer,
+      query: query
     )
     let (respData, http) = try await send(req)
     if http.statusCode >= 400 {

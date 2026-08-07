@@ -116,4 +116,38 @@ final class VivijureKitTests: XCTestCase {
     XCTAssertEqual(m.refKeys, ["r1"])
     XCTAssertEqual(m.portrait_key, "p")
   }
+
+  func testSceneIds() {
+    let sb: JSONValue = .object([
+      "scenes": .array([
+        .object(["id": .string("intro"), "prompt": .string("a")]),
+        .object(["prompt": .string("b")]),
+      ]),
+    ])
+    XCTAssertEqual(StoryboardMutator.sceneIds(from: sb), ["intro", "shot_02"])
+  }
+
+  func testScatterRequestEncodes() throws {
+    let body = ScatterRenderRequest(
+      bundleKey: "bundles/x.tar.gz",
+      shotIds: ["a", "b"],
+      shardCount: 2,
+      qualityTier: "final",
+      castLoras: ["A": "cast-uuid"],
+      motionBackend: "own-gpu"
+    )
+    let data = try JSONEncoder().encode(body)
+    let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+    XCTAssertEqual(obj?["bundleKey"] as? String, "bundles/x.tar.gz")
+    XCTAssertEqual(obj?["shardCount"] as? Int, 2)
+    XCTAssertEqual(obj?["motion_backend"] as? String, "own-gpu")
+  }
+
+  func testRenderRowScatterFlag() throws {
+    let json = """
+    {"id":1,"job_id":"scatter-abc","status":"PENDING"}
+    """
+    let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
+    XCTAssertTrue(row.isScatterParent)
+  }
 }

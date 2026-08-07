@@ -60,6 +60,35 @@ public struct SceneEdit: Identifiable, Equatable, Sendable {
 }
 
 public enum StoryboardMutator {
+  /// Web `sceneIdAt`: prefer scene.id, else `shot_NN`.
+  public static func sceneId(at index: Int, scene: JSONValue) -> String {
+    if let id = scene.objectValue?["id"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+       !id.isEmpty
+    {
+      return id
+    }
+    return String(format: "shot_%02d", index + 1)
+  }
+
+  public static func sceneIds(from storyboard: JSONValue) -> [String] {
+    guard let scenes = storyboard.objectValue?["scenes"]?.arrayValue else { return [] }
+    return scenes.enumerated().map { sceneId(at: $0.offset, scene: $0.element) }
+  }
+
+  /// Motion.backend module names from GET /api/modules hooks map.
+  public static func motionBackends(from modules: ModulesResponse?) -> [String] {
+    guard let hooks = modules?.hooks?.objectValue,
+          let arr = hooks["motion.backend"]?.arrayValue
+    else { return [] }
+    return arr.compactMap(\.stringValue)
+  }
+
+  public static func moduleNames(from modules: ModulesResponse?) -> [String] {
+    (modules?.modules ?? []).compactMap { mod in
+      mod.objectValue?["name"]?.stringValue
+    }
+  }
+
   /// Replace scenes array after UI edits. Returns nil if no scenes key.
   public static func applyScenes(_ edits: [SceneEdit], to storyboard: JSONValue) -> JSONValue {
     var root = storyboard.objectValue ?? [:]

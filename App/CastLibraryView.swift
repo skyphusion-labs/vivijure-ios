@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 import VivijureKit
 
@@ -7,6 +8,7 @@ struct CastLibraryView: View {
   @EnvironmentObject private var app: AppState
   @State private var name = ""
   @State private var bible = ""
+  @State private var showImport = false
 
   var body: some View {
     NavigationStack {
@@ -26,6 +28,9 @@ struct CastLibraryView: View {
               name = ""
               bible = ""
             }
+          }
+          Button("Import .vvcast…") {
+            showImport = true
           }
         }
         Section("Cast") {
@@ -73,6 +78,28 @@ struct CastLibraryView: View {
         }
       }
       .task { await app.refreshCast() }
+      .fileImporter(
+        isPresented: $showImport,
+        allowedContentTypes: [.data, .archive, UTType(filenameExtension: "vvcast") ?? .data],
+        allowsMultipleSelection: false
+      ) { result in
+        switch result {
+        case .success(let urls):
+          guard let url = urls.first else { return }
+          Task {
+            let access = url.startAccessingSecurityScopedResource()
+            defer { if access { url.stopAccessingSecurityScopedResource() } }
+            do {
+              let data = try Data(contentsOf: url)
+              await app.importCastTar(data)
+            } catch {
+              app.lastError = error.localizedDescription
+            }
+          }
+        case .failure(let err):
+          app.lastError = err.localizedDescription
+        }
+      }
     }
   }
 }
@@ -86,6 +113,8 @@ struct CastDetailView: View {
   @State private var photoItem: PhotosPickerItem?
   @State private var uploadKind: VivijureClient.CastMediaKind = .portrait
   @State private var loraDetail = ""
+  @State private var exportURL: URL?
+  @State private var showExportShare = false
 
   private var member: CastMember? {
     app.cast.first { $0.id == memberId }
@@ -145,6 +174,13 @@ struct CastDetailView: View {
           }
         }
 
+        Section("Generate refs (cast.image)") {
+          Button("Generate refs from portrait/sources") {
+            Task { await app.generateCastRefs(id: m.id) }
+          }
+          .disabled(app.busy || m.portrait_key == nil)
+        }
+
         Section("Training") {
           if let st = m.lora_status {
             Text("Status: \(st)")
@@ -163,6 +199,13 @@ struct CastDetailView: View {
           if !loraDetail.isEmpty {
             Text(loraDetail).font(.caption2.monospaced())
           }
+        }
+
+        Section("Portable bundle") {
+          Button("Export .vvcast") {
+            Task { await exportVV(m) }
+          }
+          .disabled(app.busy)
         }
 
         Section {
@@ -188,6 +231,27 @@ struct CastDetailView: View {
         editBible = m.bible ?? ""
       }
     }
+    .sheet(isPresented: $showExportShare) {
+      if let exportURL {
+        ShareSheet(items: [exportURL])
+      }
+    }
+  }
+
+  private func exportVV(_ m: CastMember) async {
+    guard let data = await app.exportCastData(id: m.id) else { return }
+    let name = m.name
+      .replacingOccurrences(of: "/", with: "-")
+      .replacingOccurrences(of: " ", with: "-")
+    let url = FileManager.default.temporaryDirectory
+      .appendingPathComponent("\(name).vvcast")
+    do {
+      try data.write(to: url, options: .atomic)
+      exportURL = url
+      showExportShare = true
+    } catch {
+      app.lastError = error.localizedDescription
+    }
   }
 
   private func uploadPicked(_ item: PhotosPickerItem, memberId: String) async {
@@ -196,7 +260,7 @@ struct CastDetailView: View {
         app.lastError = "Could not load image data"
         return
       }
-      let mime = sniffImageMime(data) ?? "image/jpeg"
+      let mime = ImageMime.sniff(data) ?? "image/jpeg"
       await app.uploadCastImage(id: memberId, kind: uploadKind, data: data, mime: mime)
       photoItem = nil
     } catch {
@@ -218,19 +282,15 @@ struct CastDetailView: View {
       app.lastError = error.localizedDescription
     }
   }
+}
 
-  private func sniffImageMime(_ data: Data) -> String? {
-    if data.starts(with: [0x89, 0x50, 0x4E, 0x47]) { return "image/png" }
-    if data.starts(with: [0xFF, 0xD8, 0xFF]) { return "image/jpeg" }
-    if data.count >= 12 {
-      let riff = data.prefix(4)
-      let webp = data.subdata(in: 8 ..< 12)
-      if riff.elementsEqual([0x52, 0x49, 0x46, 0x46]),
-         webp.elementsEqual([0x57, 0x45, 0x42, 0x50])
-      {
-        return "image/webp"
-      }
-    }
-    return nil
+/// Minimal UIActivityViewController wrapper for exporting .vvcast.
+struct ShareSheet: UIViewControllerRepresentable {
+  var items: [Any]
+
+  func makeUIViewController(context: Context) -> UIActivityViewController {
+    UIActivityViewController(activityItems: items, applicationActivities: nil)
   }
+
+  func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
