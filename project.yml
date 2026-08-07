@@ -1,0 +1,51 @@
+name: Vivijure
+options:
+  bundleIdPrefix: org.skyphusion
+  deploymentTarget:
+    iOS: "16.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  VivijureKitLocal:
+    path: .
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  Vivijure:
+    type: application
+    platform: iOS
+    deploymentTarget: "16.0"
+    sources:
+      - path: App
+        excludes:
+          - README.md
+    dependencies:
+      - package: VivijureKitLocal
+        product: VivijureKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.skyphusion.vivijure
+        PRODUCT_NAME: Vivijure
+        TARGETED_DEVICE_FAMILY: "1,2"
+        INFOPLIST_KEY_CFBundleDisplayName: "Vivijure"
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_EMIT_LOC_STRINGS: YES
+        ITSAppUsesNonExemptEncryption: false
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: "Vivijure"
+        CFBundleName: "Vivijure"
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true

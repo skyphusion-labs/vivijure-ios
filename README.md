@@ -2,7 +2,7 @@
 
 **License:** AGPL-3.0-only  
 **App name:** Vivijure for iOS (planned)  
-**Status:** skeleton  
+**Status:** 0.1 WIP (kit + stepped planner shell)  
 **Product role:** **mobile-friendly frontend to the Storyboard Planner**  
 **Studio API:** [vivijure-cf](https://github.com/skyphusion-labs/vivijure-cf) / [vivijure-local](https://github.com/skyphusion-labs/vivijure-local)  
 **Sibling:** [vivijure-android](https://github.com/skyphusion-labs/vivijure-android)  
@@ -63,13 +63,23 @@ flowchart TB
 
 ## Status
 
-Skeleton only. Kit target + CI smoke test exist; planner UX and CONTRACT coverage are not
-implemented yet. Track gaps in `docs/PARITY.md`.
+**Vertical slice in progress:**
+
+- **VivijureKit:** whoami, modules, projects, cast, plan/refine/preflight/bundle, storyboard
+  render submit/poll, history, uploads, score-bed, artifact URL
+- **App:** Keychain onboarding, tab shell, Plan → Cast & Bundle → Audio → Render → History
+
+Still open: scene editor, cast image staging, full audio tooling, module install config, notifications.
+Track gaps in `docs/PARITY.md`.
 
 ## Develop
 
 ```bash
+# Kit tests (needs full Xcode for XCTest on macOS: export DEVELOPER_DIR=…)
 swift test
+
+# App (optional XcodeGen)
+# brew install xcodegen && xcodegen generate && open Vivijure.xcodeproj
 ```
 
 ## License
