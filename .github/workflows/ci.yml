@@ -24,3 +24,5 @@ jobs:
           swift-version: "5.10"
       - name: Build + test VivijureKit
         run: swift test --package-path .
+        env:
+          DEVELOPER_DIR: ${{ runner.os == 'macOS' && '/Applications/Xcode.app/Contents/Developer' || '' }}

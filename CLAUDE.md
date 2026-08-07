@@ -10,7 +10,8 @@ possible in this app** against the same studio host and API token. Not a viewer-
 
 Shared Swift package (`VivijureKit`) plus a SwiftUI shell under `App/`.
 
-**Status: skeleton (pre-0.1).** No App Store release. Trust package/tag when a version is cut.
+**Status: 0.1 work in progress.** Kit covers core planner CONTRACT routes; SwiftUI shell has
+onboarding + stepped Planner / Cast / Modules / Settings. No App Store release yet.
 
 ## Parity authority
 
