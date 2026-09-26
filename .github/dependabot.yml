@@ -10,3 +10,17 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+    ignore:
+      # swift-actions/setup-swift v3 cannot install the toolchain this repo builds with.
+      # Measured on ubuntu-latest, 2026-09-26, PR #15 at head 33cb3186: step
+      # "Run swift-actions/setup-swift@v3" with swift-version 5.10 fails during signature
+      # verification with `The process '/usr/bin/gpg' failed with exit code 2`, and
+      # "Build + test VivijureKit" never runs. The v2 line installs 5.10 fine, which is
+      # what main pins.
+      #
+      # Without this entry the weekly actions group re-files the same PR, it fails the
+      # required `ci` context every time, and the backlog regrows on its own. Drop this
+      # ignore when either setup-swift v3 can install 5.10 on a GitHub-hosted runner, or
+      # this repo moves to a Swift version v3 handles.
+      - dependency-name: swift-actions/setup-swift
+        versions: ["3.x"]
