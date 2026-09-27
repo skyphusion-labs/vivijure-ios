@@ -54,6 +54,21 @@ jobs:
           set -euo pipefail
           go test ./... -cover
 
+      - name: Setup Swift
+        if: hashFiles('Package.swift') != ''
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
+        with:
+          swift-version: "5.10"
+
+      - name: Swift coverage
+        if: hashFiles('Package.swift') != ''
+        run: |
+          set -euo pipefail
+          swift test --enable-code-coverage
+          codecov="$(swift test --show-codecov-path)"
+          test -s "$codecov"
+          echo "line coverage: $(jq -r '.data[0].totals.lines.percent' "$codecov")%"
+
       - name: Present
-        if: hashFiles('package.json') == '' && hashFiles('go.mod') == ''
+        if: hashFiles('package.json') == '' && hashFiles('go.mod') == '' && hashFiles('Package.swift') == ''
         run: echo "no supported test manifest; coverage check present"

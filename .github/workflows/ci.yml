@@ -27,6 +27,33 @@ jobs:
         env:
           DEVELOPER_DIR: ${{ runner.os == 'macOS' && '/Applications/Xcode.app/Contents/Developer' || '' }}
 
+  # Builds the `Vivijure` app target (`App/` SwiftUI shell). `kit` only runs `swift test` on
+  # the package, so before this job an `App/` change could break the app with every check
+  # green (issue #26). Unsigned generic-iOS build: no simulator boot, no signing identity.
+  # macOS minutes bill at a higher rate than Linux; accepted for a correctness gate.
+  # NOT path-filtered on purpose: it feeds the `ci` aggregate below, and a skipped
+  # component would fail that aggregate (and a skipped required check reads as passed).
+  app:
+    name: app
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Toolchain versions
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: Install xcodegen
+        run: brew install xcodegen
+      - name: Generate Xcode project
+        run: xcodegen generate
+      - name: Build Vivijure app target
+        run: |
+          set -o pipefail
+          xcodebuild -project Vivijure.xcodeproj -scheme Vivijure \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO build
+
   # `ci` is a REQUIRED status check in the org `aviation-grade-main-org` ruleset and is
   # matched by STRING against the check-run name, which is a job's `name:`. It matches
   # neither the workflow filename nor this workflow's own `name:` field, so a workflow
@@ -41,7 +68,7 @@ jobs:
   # docs/runbooks/aviation-grade-main.md section 4.
   ci:
     name: ci
-    needs: [kit]
+    needs: [kit, app]
     if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -49,3 +76,4 @@ jobs:
       - name: Require all component jobs
         run: |
           test "${{ needs.kit.result }}" = "success"
+          test "${{ needs.app.result }}" = "success"
