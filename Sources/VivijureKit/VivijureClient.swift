@@ -67,7 +67,7 @@ public struct VivijureClient: Sendable {
     return r.projects
   }
 
-  public func getProject(id: Int) async throws -> StoryboardProject {
+  public func getProject(id: String) async throws -> StoryboardProject {
     let r: ProjectItemResponse = try await http.sendJSON(
       ProjectItemResponse.self,
       method: "GET",
@@ -92,7 +92,7 @@ public struct VivijureClient: Sendable {
     return r.project
   }
 
-  public func saveStoryboard(projectId: Int, storyboard: JSONValue) async throws -> StoryboardProject {
+  public func saveStoryboard(projectId: String, storyboard: JSONValue) async throws -> StoryboardProject {
     struct Body: Encodable { var storyboard: JSONValue }
     let r: ProjectItemResponse = try await http.sendJSON(
       ProjectItemResponse.self,
@@ -104,7 +104,7 @@ public struct VivijureClient: Sendable {
     return r.project
   }
 
-  public func deleteProject(id: Int) async throws {
+  public func deleteProject(id: String) async throws {
     struct Ok: Decodable { var ok: Bool? }
     _ = try await http.sendJSON(
       Ok.self,
@@ -427,9 +427,9 @@ public struct VivijureClient: Sendable {
 
   // MARK: - History / artifacts / upload
 
-  public func listRenders(projectId: Int? = nil, limit: Int? = nil) async throws -> [RenderRow] {
+  public func listRenders(projectId: String? = nil, limit: Int? = nil) async throws -> [RenderRow] {
     var q: [URLQueryItem] = []
-    if let projectId { q.append(URLQueryItem(name: "project_id", value: String(projectId))) }
+    if let projectId { q.append(URLQueryItem(name: "project_id", value: projectId)) }
     if let limit { q.append(URLQueryItem(name: "limit", value: String(limit))) }
     let r: RendersListResponse = try await http.sendJSON(
       RendersListResponse.self,
@@ -452,7 +452,7 @@ public struct VivijureClient: Sendable {
   }
 
   public func patchRender(
-    id: Int,
+    id: String,
     label: String? = nil,
     tags: [String]? = nil,
     folderPath: String? = nil,
@@ -472,7 +472,7 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func regenShot(renderId: Int, shotId: String) async throws -> RenderJobResponse {
+  public func regenShot(renderId: String, shotId: String) async throws -> RenderJobResponse {
     struct Body: Encodable { var shotId: String }
     return try await http.sendJSON(
       RenderJobResponse.self,
@@ -483,7 +483,7 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func deleteRender(id: Int) async throws {
+  public func deleteRender(id: String) async throws {
     struct Ok: Decodable { var ok: Bool? }
     _ = try await http.sendJSON(
       Ok.self,
@@ -493,7 +493,7 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func addAudioToRender(id: Int, audioKey: String) async throws -> JSONValue {
+  public func addAudioToRender(id: String, audioKey: String) async throws -> JSONValue {
     struct Body: Encodable { var audioKey: String }
     return try await http.sendJSON(
       JSONValue.self,
@@ -504,7 +504,7 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func addNarrationToRender(id: Int, text: String, module: String? = nil) async throws -> JSONValue {
+  public func addNarrationToRender(id: String, text: String, module: String? = nil) async throws -> JSONValue {
     try await http.sendJSON(
       JSONValue.self,
       method: "POST",
@@ -514,7 +514,7 @@ public struct VivijureClient: Sendable {
     )
   }
 
-  public func finalizeRender(id: Int, audioKey: String? = nil, castLoras: [String: String]? = nil) async throws -> JSONValue {
+  public func finalizeRender(id: String, audioKey: String? = nil, castLoras: [String: String]? = nil) async throws -> JSONValue {
     var obj: [String: JSONValue] = [:]
     if let audioKey { obj["audioKey"] = .string(audioKey) }
     if let castLoras {
@@ -530,7 +530,7 @@ public struct VivijureClient: Sendable {
   }
 
   public func animateCloud(
-    id: Int,
+    id: String,
     model: String? = nil,
     perShot: [String: String]? = nil,
     audioKey: String? = nil
@@ -551,7 +551,7 @@ public struct VivijureClient: Sendable {
   }
 
   public func animateHybrid(
-    id: Int,
+    id: String,
     backends: JSONValue? = nil,
     defaultBackend: String? = "gpu",
     defaultCloudModel: String? = nil,
