@@ -86,7 +86,7 @@ struct PlanStepView: View {
     Form {
       Section("Project") {
         Picker("Active project", selection: $app.selectedProjectId) {
-          Text("(transient)").tag(Optional<Int>.none)
+          Text("(transient)").tag(Optional<String>.none)
           ForEach(app.projects) { p in
             Text(p.name).tag(Optional(p.id))
           }
@@ -815,9 +815,9 @@ struct RenderFieldControl: View {
 
 struct HistoryStepView: View {
   @EnvironmentObject private var app: AppState
-  @State private var labelDrafts: [Int: String] = [:]
-  @State private var tagDrafts: [Int: String] = [:]
-  @State private var narrationDrafts: [Int: String] = [:]
+  @State private var labelDrafts: [String: String] = [:]
+  @State private var tagDrafts: [String: String] = [:]
+  @State private var narrationDrafts: [String: String] = [:]
   @Environment(\.openURL) private var openURL
 
   var body: some View {
