@@ -25,7 +25,7 @@ final class AppState: ObservableObject {
 
   // Planner session (mirrors web localStorage session)
   @Published var projects: [StoryboardProject] = []
-  @Published var selectedProjectId: Int?
+  @Published var selectedProjectId: String?
   @Published var brief: String = ""
   @Published var planModel: String = ""
   @Published var availableModels: [String] = []
@@ -361,7 +361,7 @@ final class AppState: ObservableObject {
     UNUserNotificationCenter.current().add(req)
   }
 
-  func selectProject(_ id: Int?) async {
+  func selectProject(_ id: String?) async {
     selectedProjectId = id
     guard let id, let client else {
       persistSession()
@@ -966,7 +966,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func deleteRender(id: Int) async {
+  func deleteRender(id: String) async {
     guard let client else { return }
     do {
       try await client.deleteRender(id: id)
@@ -976,7 +976,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func patchRenderLabel(id: Int, label: String) async {
+  func patchRenderLabel(id: String, label: String) async {
     guard let client else { return }
     do {
       _ = try await client.patchRender(id: id, label: label)
@@ -986,7 +986,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func patchRenderTags(id: Int, tags: [String]) async {
+  func patchRenderTags(id: String, tags: [String]) async {
     guard let client else { return }
     do {
       _ = try await client.patchRender(id: id, tags: tags)
@@ -996,7 +996,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func addAudioToHistory(id: Int) async {
+  func addAudioToHistory(id: String) async {
     guard let client, let audioKey else {
       lastError = "Stage an audio bed first (Audio step)"
       return
@@ -1012,7 +1012,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func addNarrationToHistory(id: Int, text: String) async {
+  func addNarrationToHistory(id: String, text: String) async {
     guard let client else { return }
     let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !t.isEmpty else {
@@ -1030,7 +1030,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func finalizeHistory(id: Int) async {
+  func finalizeHistory(id: String) async {
     guard let client else { return }
     busy = true
     defer { busy = false }
@@ -1047,7 +1047,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func animateCloudHistory(id: Int, perShot: [String: String]? = nil) async {
+  func animateCloudHistory(id: String, perShot: [String: String]? = nil) async {
     guard let client else { return }
     busy = true
     defer { busy = false }
@@ -1068,7 +1068,7 @@ final class AppState: ObservableObject {
   }
 
   func animateHybridHistory(
-    id: Int,
+    id: String,
     defaultBackend: String = "gpu",
     backends: [String: String]? = nil
   ) async {
@@ -1123,7 +1123,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func setLockedShots(renderId: Int, shots: [String]) async {
+  func setLockedShots(renderId: String, shots: [String]) async {
     guard let client else { return }
     do {
       _ = try await client.patchRender(id: renderId, lockedShots: shots)
@@ -1133,7 +1133,7 @@ final class AppState: ObservableObject {
     }
   }
 
-  func toggleLockedShot(renderId: Int, shotId: String, currently: [String]) async {
+  func toggleLockedShot(renderId: String, shotId: String, currently: [String]) async {
     var next = Set(currently)
     if next.contains(shotId) {
       next.remove(shotId)
@@ -1143,7 +1143,7 @@ final class AppState: ObservableObject {
     await setLockedShots(renderId: renderId, shots: Array(next).sorted())
   }
 
-  func regenShot(renderId: Int, shotId: String) async {
+  func regenShot(renderId: String, shotId: String) async {
     guard let client else { return }
     busy = true
     defer { busy = false }
@@ -1423,7 +1423,7 @@ final class AppState: ObservableObject {
   private struct SessionBlob: Codable {
     var brief: String?
     var planModel: String?
-    var selectedProjectId: Int?
+    var selectedProjectId: String?
     var storyboard: JSONValue?
     var originalStoryboard: JSONValue?
     var bundleKey: String?

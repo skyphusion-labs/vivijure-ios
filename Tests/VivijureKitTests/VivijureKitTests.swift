@@ -145,7 +145,7 @@ final class VivijureKitTests: XCTestCase {
 
   func testRenderRowScatterFlag() throws {
     let json = """
-    {"id":1,"job_id":"scatter-abc","status":"PENDING"}
+    {"id":"r1","job_id":"scatter-abc","status":"PENDING"}
     """
     let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
     XCTAssertTrue(row.isScatterParent)
@@ -197,7 +197,7 @@ final class VivijureKitTests: XCTestCase {
 
   func testKeyframeShotIds() throws {
     let json = """
-    {"id":9,"status":"COMPLETED","keyframes":[{"shot_id":"s1"},{"shot_id":"s2"}],"locked_shots":["s1"]}
+    {"id":"r9","status":"COMPLETED","keyframes":[{"shot_id":"s1"},{"shot_id":"s2"}],"locked_shots":["s1"]}
     """
     let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
     XCTAssertEqual(row.keyframeShotIds, ["s1", "s2"])
@@ -244,5 +244,34 @@ final class VivijureKitTests: XCTestCase {
     XCTAssertEqual(hy?.objectValue?["s1"]?.objectValue?["backend"]?.stringValue, "cloud")
     XCTAssertEqual(hy?.objectValue?["s1"]?.objectValue?["model"]?.stringValue, "seedance")
     XCTAssertEqual(hy?.objectValue?["s2"]?.objectValue?["backend"]?.stringValue, "gpu")
+  }
+
+  // Host contract (vivijure-cf docs/CONTRACT.md, "Resource ids" + Appendix A): project and render
+  // rows are addressed by an opaque public id (UUID string); RenderRow.project_id is the referenced
+  // project's public id.
+  func testProjectsListDecodesOpaqueIds() throws {
+    let json = """
+    {"projects":[{"id":"6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5","slug":"noir","name":"Noir","prefs":{},"last_storyboard":null,"created_at":"2026-09-01 10:00:00","updated_at":"2026-09-01 10:00:00"}]}
+    """
+    let r = try JSONDecoder().decode(ProjectsListResponse.self, from: Data(json.utf8))
+    XCTAssertEqual(r.projects.first.map { String(describing: $0.id) }, "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
+  }
+
+  func testRenderRowDecodesOpaqueIds() throws {
+    let json = """
+    {"id":"0b9a8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d","job_id":"film-abc","status":"COMPLETED","project_id":"6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5","parent_id":null}
+    """
+    let row = try JSONDecoder().decode(RenderRow.self, from: Data(json.utf8))
+    XCTAssertEqual(String(describing: row.id), "0b9a8c7d-6e5f-4a3b-9c2d-1e0f9a8b7c6d")
+    XCTAssertEqual(row.project_id.map { String(describing: $0) }, "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
+  }
+
+  func testRenderRequestSendsProjectIdAsPublicId() throws {
+    let body = StoryboardRenderRequest(
+      bundleKey: "bundles/x.tar.gz",
+      projectId: "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5"
+    )
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+    XCTAssertEqual(obj?["projectId"] as? String, "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
   }
 }

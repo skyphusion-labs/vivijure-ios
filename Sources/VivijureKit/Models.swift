@@ -60,7 +60,7 @@ public struct ModulesResponse: Codable, Sendable {
 // MARK: - Projects
 
 public struct StoryboardProject: Codable, Sendable, Identifiable, Equatable {
-  public var id: Int
+  public var id: String
   public var slug: String?
   public var name: String
   public var prefs: JSONValue?
@@ -319,8 +319,8 @@ public struct StoryboardRenderRequest: Codable, Sendable {
   public var quality_tier: String?
   public var qualityTier: String?
   public var project: String?
-  public var project_id: Int?
-  public var projectId: Int?
+  public var project_id: String?
+  public var projectId: String?
   /// Web panel sends camelCase `castLoras` (primary).
   public var castLoras: [String: String]?
   public var cast_loras: [String: String]?
@@ -336,7 +336,7 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     bundleKey: String? = nil,
     qualityTier: String? = nil,
     project: String? = nil,
-    projectId: Int? = nil,
+    projectId: String? = nil,
     castLoras: [String: String]? = nil,
     keyframesOnly: Bool? = nil,
     motionBackend: String? = nil,
@@ -380,7 +380,7 @@ public struct RenderJobResponse: Codable, Sendable {
 // MARK: - History
 
 public struct RenderRow: Codable, Sendable, Identifiable, Equatable {
-  public var id: Int
+  public var id: String
   public var job_id: String?
   public var project: String?
   public var bundle_key: String?
@@ -391,7 +391,7 @@ public struct RenderRow: Codable, Sendable, Identifiable, Equatable {
   public var label: String?
   public var mode: String?
   public var tags: [String]?
-  public var project_id: Int?
+  public var project_id: String?
   public var parent_id: JSONValue?
   public var render_overrides: JSONValue?
   public var storyboard: JSONValue?
@@ -422,7 +422,7 @@ public struct ScatterRenderRequest: Codable, Sendable {
   public var qualityTier: String?
   public var castLoras: [String: String]?
   public var audioKey: String?
-  public var projectId: Int?
+  public var projectId: String?
   public var motion_backend: String?
   public var renderOverrides: JSONValue?
 
@@ -433,7 +433,7 @@ public struct ScatterRenderRequest: Codable, Sendable {
     qualityTier: String? = nil,
     castLoras: [String: String]? = nil,
     audioKey: String? = nil,
-    projectId: Int? = nil,
+    projectId: String? = nil,
     motionBackend: String? = nil,
     renderOverrides: JSONValue? = nil
   ) {
