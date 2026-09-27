@@ -22,6 +22,7 @@ final class AppState: ObservableObject {
   @Published var modules: ModulesResponse?
   @Published var statusMessage: String = ""
   @Published var lastError: String?
+  var deliberateTypeError: Int = "not an int"
 
   // Planner session (mirrors web localStorage session)
   @Published var projects: [StoryboardProject] = []
