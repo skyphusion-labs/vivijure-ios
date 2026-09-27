@@ -274,4 +274,40 @@ final class VivijureKitTests: XCTestCase {
     let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
     XCTAssertEqual(obj?["projectId"] as? String, "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
   }
+
+  // Host contract: POST /api/storyboard/render requires scenes[] ({ shot_id, prompt, seconds });
+  // POST /api/storyboard/refine requires { storyboard, message, model }.
+  func testRenderRequestCarriesScenesFromStoryboard() throws {
+    let sb: JSONValue = .object([
+      "clip_seconds": .number(5),
+      "scenes": .array([
+        .object(["id": .string("intro"), "prompt": .string("  wide shot  "), "target_seconds": .number(2.5)]),
+        .object(["prompt": .string("   ")]),
+        .object(["prompt": .string("close up")]),
+      ]),
+    ])
+    let body = StoryboardRenderRequest(storyboard: sb, bundleKey: "bundles/x.tar.gz")
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+    let scenes = obj?["scenes"] as? [[String: Any]]
+    XCTAssertEqual(scenes?.count, 2)
+    XCTAssertEqual(scenes?[0]["shot_id"] as? String, "intro")
+    XCTAssertEqual(scenes?[0]["prompt"] as? String, "wide shot")
+    XCTAssertEqual(scenes?[0]["seconds"] as? Double, 2.5)
+    XCTAssertEqual(scenes?[1]["shot_id"] as? String, "shot_03")
+    XCTAssertEqual(scenes?[1]["seconds"] as? Double, 5)
+  }
+
+
+  func testRefineRequestEncodesMessage() throws {
+    let body = RefineRequest(storyboard: .object([:]), instruction: "make it darker", model: "m1")
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+    XCTAssertEqual(obj?["message"] as? String, "make it darker")
+    XCTAssertEqual(obj?["model"] as? String, "m1")
+    XCTAssertNil(obj?["instruction"])
+  }
+
+  func testFilmSceneSecondsDefaultsToFour() {
+    let sb: JSONValue = .object(["scenes": .array([.object(["prompt": .string("a")])])])
+    XCTAssertEqual(StoryboardMutator.filmScenes(from: sb).first?.seconds, 4)
+  }
 }

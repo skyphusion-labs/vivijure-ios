@@ -167,6 +167,13 @@ public struct RefineRequest: Codable, Sendable {
   public var instruction: String
   public var model: String?
 
+  /// Host contract: the refine body field is `message`.
+  enum CodingKeys: String, CodingKey {
+    case storyboard
+    case instruction = "message"
+    case model
+  }
+
   public init(storyboard: JSONValue, instruction: String, model: String? = nil) {
     self.storyboard = storyboard
     self.instruction = instruction
@@ -312,6 +319,13 @@ public struct BundleResponse: Codable, Sendable {
 
 // MARK: - Render (web planner path)
 
+/// One render scene, as the host requires in `scenes[]` (`{ shot_id, prompt, seconds }`).
+public struct FilmScene: Codable, Sendable, Equatable {
+  public var shot_id: String
+  public var prompt: String
+  public var seconds: Double
+}
+
 public struct StoryboardRenderRequest: Codable, Sendable {
   public var storyboard: JSONValue?
   public var bundle_key: String?
@@ -330,6 +344,8 @@ public struct StoryboardRenderRequest: Codable, Sendable {
   public var keyframe_backend: String?
   public var audioKey: String?
   public var renderOverrides: JSONValue?
+  /// Host requires `scenes[]` on submit; derived from `storyboard` (web `buildFilmScenes`).
+  public var scenes: [FilmScene]?
 
   public init(
     storyboard: JSONValue? = nil,
@@ -359,6 +375,7 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     self.motion_backend = motionBackend
     self.keyframe_backend = keyframeBackend
     self.audioKey = audioKey
+    self.scenes = storyboard.map { StoryboardMutator.filmScenes(from: $0) }
     self.renderOverrides = renderOverrides
   }
 }

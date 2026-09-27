@@ -70,6 +70,20 @@ public enum StoryboardMutator {
     return String(format: "shot_%02d", index + 1)
   }
 
+  /// Web `buildFilmScenes`: scenes with a non-blank prompt, seconds from `target_seconds`,
+  /// else `clip_seconds`, else 4.
+  public static func filmScenes(from storyboard: JSONValue) -> [FilmScene] {
+    guard let o = storyboard.objectValue, let scenes = o["scenes"]?.arrayValue else { return [] }
+    let clip = o["clip_seconds"]?.doubleValue.flatMap { $0 > 0 ? $0 : nil } ?? 4
+    return scenes.enumerated().compactMap { i, scene in
+      let prompt = scene.objectValue?["prompt"]?.stringValue?
+        .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+      guard !prompt.isEmpty else { return nil }
+      let seconds = scene.objectValue?["target_seconds"]?.doubleValue.flatMap { $0 > 0 ? $0 : nil } ?? clip
+      return FilmScene(shot_id: sceneId(at: i, scene: scene), prompt: prompt, seconds: seconds)
+    }
+  }
+
   public static func sceneIds(from storyboard: JSONValue) -> [String] {
     guard let scenes = storyboard.objectValue?["scenes"]?.arrayValue else { return [] }
     return scenes.enumerated().map { sceneId(at: $0.offset, scene: $0.element) }
