@@ -56,7 +56,7 @@ jobs:
 
       - name: Setup Swift
         if: hashFiles('Package.swift') != ''
-        uses: swift-actions/setup-swift@v2
+        uses: swift-actions/setup-swift@7ca6abe6b3b0e8b5421b88be48feee39cbf52c6a # v2.4.0
         with:
           swift-version: "5.10"
 
