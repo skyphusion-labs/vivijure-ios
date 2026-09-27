@@ -420,13 +420,17 @@ final class AppState: ObservableObject {
 
   func runPlan() async {
     guard let client else { return }
+    guard let model = chosenPlannerModel(planModel) else {
+      lastError = missingPlannerModelMessage
+      return
+    }
     busy = true
     lastError = nil
     defer { busy = false }
     do {
       let resp = try await client.plan(
         brief: brief,
-        model: planModel.isEmpty ? nil : planModel,
+        model: model,
         characters: planCharactersJSON()
       )
       if let err = resp.error {
@@ -457,6 +461,10 @@ final class AppState: ObservableObject {
       lastError = "Refine instruction required"
       return
     }
+    guard let model = chosenPlannerModel(planModel) else {
+      lastError = missingPlannerModelMessage
+      return
+    }
     busy = true
     lastError = nil
     defer { busy = false }
@@ -464,7 +472,7 @@ final class AppState: ObservableObject {
       let resp = try await client.refine(
         storyboard: storyboard,
         instruction: instruction,
-        model: planModel.isEmpty ? nil : planModel
+        model: model
       )
       if let err = resp.error {
         lastError = err
