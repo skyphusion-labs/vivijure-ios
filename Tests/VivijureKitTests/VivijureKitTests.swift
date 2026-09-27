@@ -310,4 +310,28 @@ final class VivijureKitTests: XCTestCase {
     let sb: JSONValue = .object(["scenes": .array([.object(["prompt": .string("a")])])])
     XCTAssertEqual(StoryboardMutator.filmScenes(from: sb).first?.seconds, 4)
   }
+
+  // Host contract 2.3.1: render.quality_tiers is { value, label, blurb }[] and default_tier a string.
+  private func modulesWithTiers(default def: String) throws -> ModulesResponse {
+    let json = """
+    {"render":{"quality_tiers":[{"value":"draft","label":"draft","blurb":"b"},{"value":"standard","label":"standard","blurb":"b"},{"value":"final","label":"final","blurb":"b"}],"default_tier":"\(def)"}}
+    """
+    return try JSONDecoder().decode(ModulesResponse.self, from: Data(json.utf8))
+  }
+
+  func testQualityTiersReadContractObjects() throws {
+    let m = try modulesWithTiers(default: "final")
+    XCTAssertEqual(m.qualityTiers, ["draft", "standard", "final"])
+  }
+
+  func testResolvedQualityTierKeepsServedSelection() throws {
+    let m = try modulesWithTiers(default: "final")
+    XCTAssertEqual(m.resolvedQualityTier(keeping: "draft"), "draft")
+  }
+
+  func testResolvedQualityTierFallsBackToHostDefault() throws {
+    let m = try modulesWithTiers(default: "standard")
+    XCTAssertEqual(m.resolvedQualityTier(keeping: nil), "standard")
+    XCTAssertEqual(m.resolvedQualityTier(keeping: "ultra"), "standard")
+  }
 }

@@ -41,7 +41,9 @@ final class AppState: ObservableObject {
   @Published var renders: [RenderRow] = []
   @Published var renderTags: [String] = []
   @Published var plannerStep: PlannerStep = .plan
-  @Published var qualityTier: String = "final"
+  @Published var qualityTier: String = "final" { didSet { qualityTierChosen = true } }
+  /// True once the tier was restored or picked, so bootstrap() keeps it instead of the host default.
+  private var qualityTierChosen = false
   @Published var keyframesOnly: Bool = false
   @Published var useScatter: Bool = false
   @Published var scatterShards: Int = 2
@@ -230,7 +232,7 @@ final class AppState: ObservableObject {
       projects = try await p
       cast = try await c
       await loadModels(client: client)
-      qualityTier = modules?.defaultQualityTier ?? "final"
+      qualityTier = modules?.resolvedQualityTier(keeping: qualityTierChosen ? qualityTier : nil) ?? "final"
       if motionBackend.isEmpty, motionBackends.count == 1, let first = motionBackends.first {
         // Match web: single backend gets an explicit default; 2+ require a pick.
         motionBackend = first
@@ -1504,7 +1506,7 @@ final class AppState: ObservableObject {
     }
     bundleKey = blob.bundleKey
     audioKey = blob.audioKey
-    qualityTier = blob.qualityTier ?? "final"
+    if let tier = blob.qualityTier { qualityTier = tier }
     renderJobId = blob.renderJobId
     if let step = blob.plannerStep, let s = PlannerStep(rawValue: step) {
       plannerStep = s

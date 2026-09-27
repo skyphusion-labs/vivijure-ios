@@ -38,14 +38,14 @@ public struct ModulesResponse: Codable, Sendable {
     try c.encodeIfPresent(api, forKey: DynamicKey("api"))
   }
 
-  /// Quality tier strings from `render.quality_tiers` when present.
+  /// Quality tier values from `render.quality_tiers` when present (contract 2.3.1: `{ value, label, blurb }[]`).
   public var qualityTiers: [String] {
     guard let render,
           case .object(let o) = render,
           let tiers = o["quality_tiers"],
           case .array(let arr) = tiers
     else { return ["draft", "standard", "final"] }
-    return arr.compactMap(\.stringValue)
+    return arr.compactMap { $0.stringValue ?? $0.objectValue?["value"]?.stringValue }
   }
 
   public var defaultQualityTier: String {
@@ -54,6 +54,13 @@ public struct ModulesResponse: Codable, Sendable {
           let d = o["default_tier"]?.stringValue
     else { return qualityTiers.last ?? "final" }
     return d
+  }
+
+  /// Web `renderTierPicker`: keep the current selection while the host still serves it, else
+  /// fall back to the host default.
+  public func resolvedQualityTier(keeping current: String?) -> String {
+    if let current, qualityTiers.contains(current) { return current }
+    return defaultQualityTier
   }
 }
 
