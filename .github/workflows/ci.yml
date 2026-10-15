@@ -22,6 +22,11 @@ jobs:
       - uses: swift-actions/setup-swift@v3
         with:
           swift-version: "5.10"
+          # v3 verifies the Swiftly installer with gpg and ubuntu-latest has
+          # no public key for that signature, so the step dies exit 2 before
+          # Swift is installed. The action's own input skips that check.
+          # Measured on vivijure-ios#15 and again on #31.
+          skip-verify-signature: true
       - name: Build + test VivijureKit
         run: swift test --package-path .
         env:
