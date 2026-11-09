@@ -57,7 +57,10 @@ quality tiers (same rule as the web panel).
 
 ```bash
 swift test
-# later: xcodegen generate && xcodebuild ...
+# App target, same gate as .github/workflows/ci.yml (needs xcodegen):
+xcodegen generate
+xcodebuild -project Vivijure.xcodeproj -scheme Vivijure \
+  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
 ```
 
 ## Contract rules
