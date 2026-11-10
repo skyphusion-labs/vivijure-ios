@@ -19,7 +19,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
-      - uses: swift-actions/setup-swift@v2
+      # setup-swift v3 verifies the Swiftly download with Swift Automatic
+      # Signing Key #4 (E813 C892 820A 6FA1 3755 B268 F167 DF1A CF9C E069).
+      # That key is not on the runner image, so gpg exits 2. Import the keys
+      # published at swift.org before the action runs gpg --verify.
+      - name: Import Swift signing keys
+        run: |
+          curl --silent --show-error --retry 3 --fail --location \
+            https://swift.org/keys/all-keys.asc | gpg --import -
+      - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1
         with:
           swift-version: "5.10"
       - name: Build + test VivijureKit
