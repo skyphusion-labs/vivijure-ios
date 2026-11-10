@@ -15,7 +15,9 @@ concurrency:
 jobs:
   kit:
     name: kit
-    runs-on: ubuntu-latest
+    # Swiftly 1.1.0, which setup-swift v3 uses, rejects ubuntu-26.04
+    # ("Unsupported Linux platform"). 24.04 is the release Swift 5.10 installs on.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
