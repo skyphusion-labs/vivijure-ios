@@ -273,6 +273,36 @@ final class VivijureKitTests: XCTestCase {
     )
     let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
     XCTAssertEqual(obj?["projectId"] as? String, "6f1c2d3e-4a5b-4c6d-8e7f-90a1b2c3d4e5")
+    XCTAssertNil(obj?["project_id"])
+  }
+
+  /// vivijure-cf `PANEL_RENDER_FIELDS` (src/submit-fields.ts). A key outside this set is a 400.
+  func testRenderRequestEncodesOnlyFieldsTheStudioReads() throws {
+    let body = StoryboardRenderRequest(
+      storyboard: .object(["scenes": .array([.object(["prompt": .string("wide")])])]),
+      bundleKey: "bundles/x.tar.gz",
+      qualityTier: "draft",
+      project: "noir",
+      projectId: "pid",
+      castLoras: ["lead": "c1"],
+      keyframesOnly: true,
+      motionBackend: "wan",
+      keyframeBackend: "keyframe",
+      audioKey: "audio/a.wav",
+      renderOverrides: .object(["config": .object([:])])
+    )
+    let obj = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as! [String: Any]
+    let allowed: Set<String> = [
+      "bundleKey", "qualityTier", "project", "projectId", "castLoras", "keyframesOnly",
+      "motion_backend", "audioKey", "renderOverrides", "scenes",
+    ]
+    XCTAssertTrue(Set(obj.keys).isSubset(of: allowed), "unexpected keys \(Set(obj.keys).subtracting(allowed))")
+    for dropped in ["bundle_key", "quality_tier", "project_id", "cast_loras", "keyframes_only", "storyboard", "keyframe_backend"] {
+      XCTAssertNil(obj[dropped], dropped)
+    }
+    let overrides = obj["renderOverrides"] as? [String: Any]
+    XCTAssertEqual(overrides?["keyframe_backend"] as? String, "keyframe")
+    XCTAssertNotNil(overrides?["config"])
   }
 
   // Host contract: POST /api/storyboard/render requires scenes[] ({ shot_id, prompt, seconds });

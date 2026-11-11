@@ -27,8 +27,10 @@ jobs:
       # published at swift.org before the action runs gpg --verify.
       - name: Import Swift signing keys
         run: |
-          curl --silent --show-error --retry 3 --fail --location \
-            https://swift.org/keys/all-keys.asc | gpg --import -
+          set -euo pipefail
+          # The runner's fetch of swift.org returned a body that was not a key
+          # (gpg exit 2, then grep exit 1). The public key block is vendored.
+          gpg --import .github/swift-signing-keys.asc
       - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1
         with:
           swift-version: "5.10"
