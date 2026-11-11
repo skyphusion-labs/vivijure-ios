@@ -10,7 +10,7 @@
 
 ## What this is
 
-AGPL **native iOS client** for [Vivijure Studio](https://vivijure.com).
+AGPL **native iOS client** for [Vivijure Studio](https://vivijure.dev).
 
 **Mandate:** everything possible on the **web planner** (and the studio pages beside it: Cast,
 Modules, Settings) must be possible in this app against the same studio host and token. This is a
