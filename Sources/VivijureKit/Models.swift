@@ -334,25 +334,33 @@ public struct FilmScene: Codable, Sendable, Equatable {
 }
 
 public struct StoryboardRenderRequest: Codable, Sendable {
-  public var storyboard: JSONValue?
-  public var bundle_key: String?
+  /// Used only to derive `scenes`. POST /api/storyboard/render does not read it
+  /// (vivijure-cf `PANEL_RENDER_FIELDS`), so it is not encoded.
+  public var storyboard: JSONValue? = nil
   public var bundleKey: String?
-  public var quality_tier: String?
   public var qualityTier: String?
   public var project: String?
-  public var project_id: String?
   public var projectId: String?
-  /// Web panel sends camelCase `castLoras` (primary).
   public var castLoras: [String: String]?
-  public var cast_loras: [String: String]?
   public var keyframesOnly: Bool?
-  public var keyframes_only: Bool?
   public var motion_backend: String?
-  public var keyframe_backend: String?
   public var audioKey: String?
   public var renderOverrides: JSONValue?
   /// Host requires `scenes[]` on submit; derived from `storyboard` (web `buildFilmScenes`).
   public var scenes: [FilmScene]?
+
+  enum CodingKeys: String, CodingKey {
+    case bundleKey
+    case qualityTier
+    case project
+    case projectId
+    case castLoras
+    case keyframesOnly
+    case motion_backend
+    case audioKey
+    case renderOverrides
+    case scenes
+  }
 
   public init(
     storyboard: JSONValue? = nil,
@@ -368,22 +376,28 @@ public struct StoryboardRenderRequest: Codable, Sendable {
     renderOverrides: JSONValue? = nil
   ) {
     self.storyboard = storyboard
-    self.bundle_key = bundleKey
     self.bundleKey = bundleKey
-    self.quality_tier = qualityTier
     self.qualityTier = qualityTier
     self.project = project
-    self.project_id = projectId
     self.projectId = projectId
     self.castLoras = castLoras
-    self.cast_loras = castLoras
     self.keyframesOnly = keyframesOnly
-    self.keyframes_only = keyframesOnly
     self.motion_backend = motionBackend
-    self.keyframe_backend = keyframeBackend
     self.audioKey = audioKey
     self.scenes = storyboard.map { StoryboardMutator.filmScenes(from: $0) }
-    self.renderOverrides = renderOverrides
+    self.renderOverrides = Self.placingKeyframeBackend(renderOverrides, keyframeBackend)
+  }
+
+  /// The door reads `renderOverrides.keyframe_backend`, not a top-level `keyframe_backend`.
+  /// An overrides object that already names the key keeps that value.
+  private static func placingKeyframeBackend(_ overrides: JSONValue?, _ backend: String?) -> JSONValue? {
+    guard let backend, !backend.isEmpty else { return overrides }
+    if let overrides, overrides.objectValue == nil { return overrides }
+    var obj = overrides ?? .object([:])
+    if obj.objectValue?["keyframe_backend"] == nil {
+      obj.setObjectKey("keyframe_backend", .string(backend))
+    }
+    return obj
   }
 }
 
