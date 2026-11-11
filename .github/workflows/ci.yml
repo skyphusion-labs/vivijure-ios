@@ -27,8 +27,16 @@ jobs:
       # published at swift.org before the action runs gpg --verify.
       - name: Import Swift signing keys
         run: |
-          curl --silent --show-error --retry 3 --fail --location \
-            https://swift.org/keys/all-keys.asc | gpg --import -
+          set -euo pipefail
+          # swift.org 302s to www.swift.org. A runner that receives the HTML
+          # redirect body instead of the key makes gpg exit 2 and the kit job
+          # never reaches swift test. Fetch the key URL directly and refuse
+          # anything that is not a key block.
+          curl --show-error --retry 5 --retry-all-errors --fail --location \
+            --output "$RUNNER_TEMP/swift-keys.asc" \
+            https://www.swift.org/keys/all-keys.asc
+          grep -q 'BEGIN PGP PUBLIC KEY BLOCK' "$RUNNER_TEMP/swift-keys.asc"
+          gpg --import "$RUNNER_TEMP/swift-keys.asc"
       - uses: swift-actions/setup-swift@364295d9c23900ce04d4e5cc708387921b4e50f9 # v3.0.0-beta.1
         with:
           swift-version: "5.10"
