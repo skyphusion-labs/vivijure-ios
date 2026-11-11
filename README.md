@@ -69,8 +69,8 @@ flowchart TB
   render submit/poll, history, uploads, score-bed, artifact URL
 - **App:** Keychain onboarding, tab shell, Plan → Cast & Bundle → Audio → Render → History
 
-Still open: scene editor, cast image staging, full audio tooling, module install config, notifications.
-Track gaps in `docs/PARITY.md`.
+Status by feature is in `docs/PARITY.md`: it marks the planner stages (Plan, Cast & Bundle, Audio,
+Render, History), cast, modules and local notifications as done. Track gaps there.
 
 ## Develop
 
