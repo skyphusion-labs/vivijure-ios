@@ -58,8 +58,8 @@ jobs:
       - name: Import Swift signing keys
         if: hashFiles('Package.swift') != ''
         run: |
-          curl --silent --show-error --retry 3 --fail --location \
-            https://swift.org/keys/all-keys.asc | gpg --import -
+          set -euo pipefail
+          gpg --import .github/swift-signing-keys.asc
 
       - name: Setup Swift
         if: hashFiles('Package.swift') != ''
